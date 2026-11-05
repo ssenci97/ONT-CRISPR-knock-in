@@ -1,0 +1,4 @@
+name: kv_mm216
+channels: [conda-forge, bioconda, nodefaults]
+dependencies:
+  - minimap2=2.16

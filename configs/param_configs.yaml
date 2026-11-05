@@ -1,0 +1,45 @@
+00_clone:
+  TOOLS_TSV: configs/tools.tsv
+01_envs:
+  ENVS: kv_alpine kv_mm216 kv_lungo kv_crispresso kv_sra
+20_fetch_real:
+  BIOPROJECT: PRJNA1257358
+  SUBSAMPLE: 20000
+  MIN_LEN: 3500
+  MAX_LEN: 7500
+  SEED: 42
+21_build_refs:
+  REGION: 14:22540000..22560000:1
+  PMC: PMC12166421
+build_refs:
+  genomic_fasta: data/raw_refs/hg38_chr14_22540000_22560000.fa
+  genomic_start_1based: 22540000
+  templates_xlsx: data/raw_refs/supp/mmc2.xlsx
+  template_title: TRAC CD19-CAR HDR template for editing with AsCas12a
+  guide: GAGTCTCTCAGCTGGTACACGGC
+  cut_offset_from_guide_5p: 18
+  primer_f_full: TTTCTGTTGGTGCTGATATTGCTTCAATCACTGCTGTGTCCCT
+  primer_r_full: ACTTGCCTGTCGCTCTATCTTCTCCCACCCCAGACCTCCTAGTT
+  primer_f_specific: TTCAATCACTGCTGTGTCCCT
+  primer_r_specific: TCCCACCCCAGACCTCCTAGTT
+  outdir: refs
+30_real_alpine:
+  PRIMER_CHECK_LENGTH: 150
+  DATA_TYPE: nanopore
+alpine_local:
+  RAM_MB: 6000
+30_real_lungo:
+  CLEAVAGE_POS: 17
+  WINDOW: 25
+  CONTROL: Mock_r1
+30_real_crispresso:
+  N_READS: 1000
+  PROCS: 8
+  WINDOW_CENTER: -5
+  WINDOW: 10
+  MIN_BQ: 20
+  TIMEOUT: 3h
+  SEED: 42
+40_summary: {}
+summarize:
+  lungo_min_insert_frac: 0.8

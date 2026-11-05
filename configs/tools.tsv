@@ -1,0 +1,4 @@
+name	repo	commit	env	knockin_readout	example_data
+ALPINE	https://github.com/Maggi-Chen/ALPINE	b59121d132f20e5056b76038b50dc136a91a756b	kv_alpine	HDR / partial / indel / ITR classes	testdata/
+CRISPRLungo	https://github.com/pinellolab/CRISPRLungo	e31ea36a3373c018cdee7b61ede8f571e4ecbf7f	kv_lungo	induced (precise/partial KI) + integration	data/
+CRISPResso2	https://github.com/pinellolab/CRISPResso2	240cd0a8f2448c458fa5d226f1ed048558d5317f	kv_crispresso	expected HDR amplicon (-e)	none for ONT (uses PRJNA1109565)
