@@ -1,14 +1,12 @@
-00_clone:
+01_clone:
   TOOLS_TSV: configs/tools.tsv
-01_envs:
+02_envs:
   ENVS: kv_alpine kv_mm216 kv_lungo kv_crispresso kv_sra
-20_fetch_real:
+03_fetch:
   BIOPROJECT: PRJNA1257358
-  SUBSAMPLE: 20000
   MIN_LEN: 3500
   MAX_LEN: 7500
-  SEED: 42
-21_build_refs:
+04_build_refs:
   REGION: 14:22540000..22560000:1
   PMC: PMC12166421
 build_refs:
@@ -23,23 +21,21 @@ build_refs:
   primer_f_specific: TTCAATCACTGCTGTGTCCCT
   primer_r_specific: TCCCACCCCAGACCTCCTAGTT
   outdir: refs
-30_real_alpine:
+05_alpine:
   PRIMER_CHECK_LENGTH: 150
   DATA_TYPE: nanopore
 alpine_local:
-  RAM_MB: 6000
-30_real_lungo:
+  RAM_MB: 131072
+06_lungo:
   CLEAVAGE_POS: 17
   WINDOW: 25
   CONTROL: Mock_r1
-30_real_crispresso:
-  N_READS: 1000
-  PROCS: 8
+07_crispresso:
+  PROCS: 64
   WINDOW_CENTER: -5
   WINDOW: 10
   MIN_BQ: 20
-  TIMEOUT: 3h
-  SEED: 42
-40_summary: {}
+  TIMEOUT: 47h
+08_summary: {}
 summarize:
   lungo_min_insert_frac: 0.8

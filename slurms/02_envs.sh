@@ -6,12 +6,12 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00
-#SBATCH --output=logs/01_envs/envs_%j.log
+#SBATCH --output=logs/02_envs/envs_%j.log
 #SBATCH --open-mode=append
 ###################################### dependencies
 KV_ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
-NAME=01_envs
+NAME=02_envs
 ENVS="kv_alpine kv_mm216 kv_lungo kv_crispresso kv_sra"
 PARAMS=(ENVS); kv_args "$@"; [ ${#KV_ARGS[@]} -gt 0 ] && ENVS="${KV_ARGS[*]}"
 ###################################### envs

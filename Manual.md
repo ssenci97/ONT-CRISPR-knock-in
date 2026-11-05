@@ -22,31 +22,31 @@ The repository holds only scripts, envs, configs and docs. Everything else is cr
 ```
 configs/   tools.tsv (repo, pinned commit, env) · param_configs.yaml
 envs/      kv_alpine · kv_mm216 · kv_lungo · kv_crispresso · kv_sra
-slurms/    analysis_env.sh (shared library) · 00_clone · 01_envs · 20_fetch_real · 21_build_refs
-           30_real_{alpine,lungo,crispresso} · 40_summary · run_all.sh
+slurms/    analysis_env.sh (shared library) · 01_clone · 02_envs · 03_fetch · 04_build_refs
+           05_alpine · 06_lungo · 07_crispresso · 08_summary · run_all.sh
 src/       build_refs.py · summarize.py · alpine_local.sh
 docs/manuals/{ALPINE,CRISPRLungo,CRISPResso2}.md
 
-tools/     the 3 cloned repos                         created by 00_clone
-data/      meta/ · raw_refs/ · real/<label>.fastq.gz  created by 20_fetch_real
-refs/      TRAC_WT.fa · TRAC_KI.fa · CAR_insert.fa · design.json · alpine/  created by 21_build_refs
-results/   real/<tool>/ · summary_real.tsv · summary_real_matrix.tsv        created by 30_* and 40_summary
+tools/     the 3 cloned repos                         created by 01_clone
+data/      meta/ · raw/ · raw_refs/ · <label>.fastq.gz · read_stats.tsv  created by 03_fetch
+refs/      TRAC_WT.fa · TRAC_KI.fa · CAR_insert.fa · design.json · alpine/  created by 04_build_refs
+results/   <tool>/ · summary.tsv · summary_matrix.tsv        created by 05–07 and 08_summary
 logs/      <step>/<tool>_<jobid>_<task>.log
 ```
 
 ## 4. Conventions
 - **Parameters** sit at the top of each script. `--yaml-out` writes them to `configs/param_configs.yaml` under the script name; `--yaml-in` reads them back.
-- **SLURM:** every step carries a GENOA header. The per-sample steps (`20_fetch_real`, `30_real_*`) are arrays (`--array=1-5%2`), and `SLURM_ARRAY_TASK_ID` selects the sample. Run with `bash`, they loop over all samples.
+- **SLURM:** every step carries a GENOA header. The per-sample steps (`03_fetch`, `05`–`07`) are arrays (`--array=1-5`, fetch `1-5%2`), sized for full runs (~320–490k reads per sample), and `SLURM_ARRAY_TASK_ID` selects the sample. Run with `bash`, they loop over all samples.
 - **Logs** start with `[SLURM-INFO]` or `[PYTHON-INFO]` and end with `date | elapsed | max RSS`.
-- **`SEED=42`** for every random subsample.
+- **No subsampling anywhere.** Every tool gets every read that passes the length filter. `SEED=42` is still exported for any random step.
 - Samples and the control are defined in `slurms/analysis_env.sh` (`SAMPLES`, `CONTROL`).
 
 ## 5. Install
 ```bash
-bash slurms/00_clone.sh
-bash slurms/01_envs.sh            # or: bash slurms/01_envs.sh kv_lungo   (one env)
+bash slurms/01_clone.sh
+bash slurms/02_envs.sh            # or: bash slurms/02_envs.sh kv_lungo   (one env)
 ```
-`01_envs` also does `pip install -e tools/CRISPRLungo`, which the tool needs.
+`02_envs` also does `pip install -e tools/CRISPRLungo`, which the tool needs.
 
 **ALPINE without Docker** (`src/alpine_local.sh`): the upstream CWL runs `/opt/*.py` inside private images that were never published. The script copies the CWL, repoints those paths at `tools/ALPINE/DockerFile/*`, lowers `coresMin`/`ramMin`, strips `DockerRequirement`, points `PATCHER_MINIMAP2_PATH` at the minimap2 2.16 in `kv_mm216`, and runs `cwltool --no-container`.
 - The last step, `group_output`, can fail with "str object expected; got None". It only copies finished files, so the run counts as OK when the classification table exists.
@@ -65,9 +65,9 @@ bash slurms/01_envs.sh            # or: bash slurms/01_envs.sh kv_lungo   (one e
 | ssDNA_r1 | SRR33387464 | RNP + ssDNA donor |
 | ssCTS_r1 | SRR33387474 | RNP + ssCTS donor |
 
-`20_fetch_real` takes the `.sra` objects from the NCBI open-data S3 bucket (ENA serves them at about 10 KB/s from here), converts them with `fasterq-dump`, checks the read count against ENA, keeps reads of 3.5–7.5 kb, and subsamples 20,000 per run.
+`03_fetch` takes the `.sra` objects from the NCBI open-data S3 bucket (ENA serves them at about 10 KB/s from here), converts them with `fasterq-dump`, checks the read count against ENA, and keeps every read of 3.5–7.5 kb (no subsampling). Counts go to `data/read_stats.tsv`.
 
-## 7. References (`21_build_refs` → `src/build_refs.py`)
+## 7. References (`04_build_refs` → `src/build_refs.py`)
 - **WT:** hg38 chr14:22,545,232-22,549,589 (4,358 bp), bounded by the paper's gene-specific primers, fetched from Ensembl REST.
 - **Knock-in allele:** the paper's Table S1 AsCas12a HDR template (305 bp arms carrying PAM-blocking mutations) placed into the WT. Insert 2,011 bp, KI allele 6,373 bp. The supplements come from Europe PMC.
 - **Guide:** crRNA `GAGTCTCTCAGCTGGTACACGGC`, minus strand, cut after WT base 2299.
@@ -80,10 +80,10 @@ The dataset was checked once against both of the paper's templates: reads carryi
 |---|---|---|
 | ALPINE | refs WT + HDR; full ONT-tailed primers with `primer_check_length 150`, because reads still carry barcode sequence; template homology arms; `data_type nanopore` | HDR class / classified reads |
 | CRISPRLungo | `--cleavage_pos 17` (AsCas12a cuts after protospacer nt 18); `--window 25`, because a PAM-blocking mutation sits 20 bp from the cut; `--control Mock_r1`; `--induced_sequence_path`; `--integration_file` | reads whose integration covers ≥ 80 % of the CAR insert / classified reads |
-| CRISPResso2 | amplicon ends N-masked over 100 bp, `--ignore_substitutions`, `--min_bp_quality_or_N 20` (the BMC Res Notes 2024 nanopore recipe); `-e` knock-in allele; `-wc -5 -w 10`; 1,000 reads; plots and report off; `timeout 3h` | HDR-amplicon reads / aligned reads |
+| CRISPResso2 | amplicon ends N-masked over 100 bp, `--ignore_substitutions`, `--min_bp_quality_or_N 20` (the BMC Res Notes 2024 nanopore recipe); `-e` knock-in allele; `-wc -5 -w 10`; all reads, `-p 64`; plots and report off; `timeout 47h` | HDR-amplicon reads / aligned reads |
 
 ## 9. Reference results
-From the last full run (20,000 reads per sample, seed 42). `40_summary` regenerates these into `results/summary_real_matrix.tsv`.
+From an earlier **subsampled** run (20,000 reads per sample, seed 42); superseded by the full-data run. `08_summary` regenerates these into `results/summary_matrix.tsv`.
 
 | Tool | Mock | NoDonor | dsDNA | ssDNA | ssCTS |
 |---|---|---|---|---|---|
@@ -110,14 +110,13 @@ From the last full run (20,000 reads per sample, seed 42). `40_summary` regenera
 | CRISPRLungo `--large_induced_insertion` crashes | two upstream bugs in that code path; not used here |
 | CRISPResso2 `Cannot parse analysis window coordinate '-5'` | `-qwc` is the window *coordinates* flag; the window *center* is `-wc` |
 | CRISPResso2 killed for low memory | each worker holds full-length alignments of both 4–6 kb amplicons; `-p 2` locally |
-| CRISPResso2 runs for hours, or hangs while plotting | `N_READS=1000`, `--suppress_report --suppress_plots`, `timeout 3h` |
-| Exit 141 while subsampling | SIGPIPE from `seqkit head`; the pipelines run in a `set +o pipefail` subshell |
+| CRISPResso2 runs for hours, or hangs while plotting | 64 cores / 240G / 48 h per sample, `--suppress_report --suppress_plots`, `timeout 47h` |
 
 ## 11. Using your own data
-1. Set your samples and control in `slurms/analysis_env.sh` (`SAMPLES`, `CONTROL`), and the SRA accessions in `slurms/20_fetch_real.sh`. For your own FASTQs, skip `20_fetch_real` and drop them in as `data/real/<label>.fastq.gz`.
+1. Set your samples and control in `slurms/analysis_env.sh` (`SAMPLES`, `CONTROL`), and the SRA accessions in `slurms/03_fetch.sh`. For your own FASTQs, skip `03_fetch` and drop them in as `data/<label>.fastq.gz`.
 2. In `src/build_refs.py`, set the genomic window, primers, HDR template, guide and `cut_offset_from_guide_5p` (SpCas9 17, AsCas12a 18).
 3. Match the nuclease elsewhere: CRISPRLungo `--cleavage_pos` = cut offset − 1; CRISPResso2 `-wc` = −(guide length − cut offset); CRISPRLungo `--window` must cover every intended mutation.
-4. Run `21_build_refs`, check `refs/design.json` (arm mismatches, insert length), then the `30_real_*` steps and `40_summary`.
+4. Run `04_build_refs`, check `refs/design.json` (arm mismatches, insert length), then `05`–`07` and `08_summary`.
 
 ## 12. Which tool to use
 **ALPINE 8/10 · CRISPRLungo 7/10 · CRISPResso2 5/10**, for ONT knock-in amplicons.

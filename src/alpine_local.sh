@@ -3,7 +3,7 @@
 KV_ROOT="${KV_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
 NAME=alpine_local
-RAM_MB=6000
+RAM_MB=${SLURM_MEM_PER_NODE:-6000}
 MM216="$CONDA_BASE/envs/kv_mm216/bin/minimap2"
 PARAMS=(RAM_MB); kv_args "$@"
 JOB="$(realpath "${KV_ARGS[0]:?usage: alpine_local.sh <job.yaml> <outdir> [--yaml-in|--yaml-out]}")"; OUT="$(realpath -m "${KV_ARGS[1]:?missing outdir}")"

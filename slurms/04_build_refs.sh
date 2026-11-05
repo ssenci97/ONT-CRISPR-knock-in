@@ -6,12 +6,12 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
-#SBATCH --output=logs/21_build_refs/refs_%j.log
+#SBATCH --output=logs/04_build_refs/refs_%j.log
 #SBATCH --open-mode=append
 ###################################### dependencies
 KV_ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
-NAME=21_build_refs
+NAME=04_build_refs
 REGION=14:22540000..22560000:1
 PMC=PMC12166421
 PARAMS=(REGION PMC); kv_args "$@"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect real-data knock-in % (ALPINE, CRISPRLungo, CRISPResso2) into results/summary_real*.tsv."""
+"""Collect knock-in % (ALPINE, CRISPRLungo, CRISPResso2) on all length-passing reads into results/summary*.tsv."""
 import argparse, csv, datetime, glob, json, os, re, resource, time
 import yaml
 from tqdm import tqdm
@@ -24,7 +24,7 @@ def yaml_io(p, a):
 
 ###################################### tool metrics
 def alpine(label, d, p):
-    hits = [h for h in glob.glob(f"{RES}/real/ALPINE/{label}/**/{label}_read_classification.txt", recursive=True) if "/cwl_local/" not in h]
+    hits = [h for h in glob.glob(f"{RES}/ALPINE/{label}/**/{label}_read_classification.txt", recursive=True) if "/cwl_local/" not in h]
     if not hits: return None
     rows = list(csv.reader(open(hits[0]), delimiter="\t")); cnt = {}
     for k, v in zip(rows[0], rows[-1]):
@@ -35,18 +35,19 @@ def alpine(label, d, p):
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])[:5] if v))
 
 def lungo(label, d, p):
-    f = f"{RES}/real/CRISPRLungo/{label}/results/read_classification.txt"
+    f = f"{RES}/CRISPRLungo/{label}/results/read_classification.txt"
     if not os.path.exists(f): return None
-    rows, cls, k = tsv(f), {}, 0
-    for r in rows:
-        cls[r["Classification"]] = cls.get(r["Classification"], 0) + 1
-        k += max([int(b) - int(a) + 1 for a, b in re.findall(r"inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or "")] or [0]) >= p["lungo_min_insert_frac"] * d["insert_len"]
-    n = len(rows)
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"integration matching >={p['lungo_min_insert_frac']:.0%} of CAR insert / classified reads",
+    reads, cls = {}, {}
+    for r in tsv(f):
+        rid = re.sub(r"_split_\d+$", "", r["Read_id"]); cls[r["Classification"]] = cls.get(r["Classification"], 0) + 1
+        span = max([int(b) - int(a) + 1 for a, b in re.findall(r"CAR_insert_\d+to\d+inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or "")] or [0])
+        reads[rid] = reads.get(rid, False) or span >= p["lungo_min_insert_frac"] * d["insert_len"]
+    n, k = len(reads), sum(reads.values())
+    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads with CAR_insert integration >={p['lungo_min_insert_frac']:.0%} of insert / classified reads (split segments merged)",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cls.items(), key=lambda x: -x[1])[:5]))
 
 def crispresso(label, d, p):
-    f = f"{RES}/real/CRISPResso2/CRISPResso_on_{label}/CRISPResso_quantification_of_editing_frequency.txt"
+    f = f"{RES}/CRISPResso2/CRISPResso_on_{label}/CRISPResso_quantification_of_editing_frequency.txt"
     if not os.path.exists(f): return None
     rows = tsv(f); n, rin = int(rows[0]["Reads_aligned_all_amplicons"]), int(rows[0]["Reads_in_input"])
     k = sum(int(r["Reads_aligned"]) for r in rows if r["Amplicon"] == "HDR"); wt = next(r for r in rows if r["Amplicon"] != "HDR")
@@ -59,16 +60,16 @@ TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo, "CRISPResso2": crispresso}
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--yaml-in", action="store_true"); ap.add_argument("--yaml-out", action="store_true")
     p = yaml_io(dict(PARAMS), ap.parse_args()); d = json.load(open(f"{ROOT}/refs/design.json"))["design"]
-    sp = f"{ROOT}/data/real/subsample_stats.tsv"; sub = {r["label"]: r for r in tsv(sp)} if os.path.exists(sp) else {}
+    sp = f"{ROOT}/data/read_stats.tsv"; sub = {r["label"]: r for r in tsv(sp)} if os.path.exists(sp) else {}
     out = []
     for tool, label in tqdm([(t, s) for t in TOOLS for s in SAMPLES], desc="[PYTHON-INFO] summarize", disable=None):
-        r = dict(tool=tool, label=label, condition=SAMPLES[label], reads_in=sub.get(label, {}).get("subsampled", ""))
+        r = dict(tool=tool, label=label, condition=SAMPLES[label], reads_in=sub.get(label, {}).get("len_pass", ""))
         r.update(TOOLS[tool](label, d, p) or dict(notes="missing output")); out.append(r)
-    with open(f"{RES}/summary_real.tsv", "w") as fh:
+    with open(f"{RES}/summary.tsv", "w") as fh:
         w = csv.DictWriter(fh, COLS, delimiter="\t", extrasaction="ignore"); w.writeheader(); [w.writerow({k: "" if r.get(k) is None else r.get(k, "") for k in COLS}) for r in out]
     ki = {(r["tool"], r["label"]): r.get("ki_pct") for r in out}
     mx = "tool\t" + "\t".join(SAMPLES) + "\n" + "".join(t + "\t" + "\t".join("NA" if ki[(t, s)] is None else str(ki[(t, s)]) for s in SAMPLES) + "\n" for t in TOOLS)
-    open(f"{RES}/summary_real_matrix.tsv", "w").write(mx)
+    open(f"{RES}/summary_matrix.tsv", "w").write(mx)
     for l in mx.splitlines(): log("KI% " + l.replace("\t", " | "))
     log(f"{datetime.datetime.now():%F %T} | elapsed {time.time() - T0:.1f} s | max RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1048576:.2f} GB")
 

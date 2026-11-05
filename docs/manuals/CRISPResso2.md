@@ -24,10 +24,10 @@ CRISPResso --fastq_r1 <label>.capped.fastq.gz -a <TRAC_WT, ends N-masked> -an TR
 - **`-wc -5`** is `--quantification_window_center`. AsCas12a cuts after protospacer nt 18 of a 23-nt crRNA, so the last base before the cut sits 5 nt from the guide 3′ end. For SpCas9 it would be −3.
   **Do not confuse it with `-qwc`**, which is `--quantification_window_coordinates` and fails with "Cannot parse analysis window coordinate '-5'".
 - **KI %** = `Reads_aligned` of the HDR amplicon / `Reads_aligned_all_amplicons`.
-- **Reads are capped at `N_READS` (1,000)**, a random subset of the 20,000, seed 42.
+- **No read cap.** All length-passing reads are used (~320–490k per sample).
 
 ## Result here: not completed
-The real-data run was stopped. On 4,358 bp WT and 6,373 bp knock-in amplicons, CRISPResso2 aligns every unique read globally against both references, which is O(L²) per read, and ONT reads are almost never identical.
+The earlier workstation run (subsampled) was stopped. On 4,358 bp WT and 6,373 bp knock-in amplicons, CRISPResso2 aligns every unique read globally against both references, which is O(L²) per read, and ONT reads are almost never identical.
 
 Measured on this machine (8 cores, 7.7 GB):
 - 5,000 reads with 2 workers: **2 h 44 min** per sample.
@@ -37,12 +37,12 @@ Measured on this machine (8 cores, 7.7 GB):
 
 The Mock control did complete: 627 of 1,000 reads aligned, 0 to the knock-in allele, 10.2 % of WT-assigned reads modified. That is the expected background.
 
-The script (`slurms/30_real_crispresso.sh`) is kept and works; it uses `-p 8` under SLURM and `-p 2` locally. Give it a cluster node and more time, or raise `N_READS` only if you can afford the runtime.
+`slurms/07_crispresso.sh` now runs every read with `-p $SLURM_CPUS_PER_TASK` (64) on 240G for up to 48 h per sample (one array task each). At ~1.1 worker-h per 1,000 reads this is ~6–8 h per sample on 64 cores.
 
 ## Known upstream issues
 - **#565:** no hard amplicon length limit; 1–5 kb works, about 15 kb exhausts memory.
 - **#484:** memory grows with the number of unique reads, which is nearly every read on ONT data. Cap the reads, or split and use `CRISPRessoAggregate`.
-- **#668:** truncated reads score as large deletions in global alignment, so reads are length-filtered to 3.5–7.5 kb in `20_fetch_real`.
+- **#668:** truncated reads score as large deletions in global alignment, so reads are length-filtered to 3.5–7.5 kb in `03_fetch`.
 - **#309 / #636:** long reads are "not validated"; the maintainers recommend CRISPRLungo for long-read amplicons.
 
 **Verdict for this use case:** fine for short amplicons and as a cross-check against Illumina pipelines, impractical at 4–6 kb.

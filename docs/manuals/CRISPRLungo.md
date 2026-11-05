@@ -16,8 +16,8 @@
 
 ## Command used here
 ```
-CRISPRlungo refs/TRAC_WT.fa data/real/<label>.fastq.gz results/real/CRISPRLungo/<label> GAGTCTCTCAGCTGGTACACGGC \
-  --cleavage_pos 17 --window 25 --control data/real/Mock_r1.fastq.gz \
+CRISPRlungo refs/TRAC_WT.fa data/<label>.fastq.gz results/CRISPRLungo/<label> GAGTCTCTCAGCTGGTACACGGC \
+  --cleavage_pos 17 --window 25 --control data/Mock_r1.fastq.gz \
   --induced_sequence_path refs/TRAC_KI.fa --integration_file refs/CAR_insert.fa -t 8
 ```
 - **`--cleavage_pos`** (default 16 = SpCas9) is the 0-based index in the guide of the last base 5′ of the cut. **AsCas12a cuts after protospacer nt 18, so 17.**
@@ -30,7 +30,7 @@ CRISPRlungo refs/TRAC_WT.fa data/real/<label>.fastq.gz results/real/CRISPRLungo/
 `Induce_type` is **not** used: it compares each read with the whole expected allele, and with a 2,011 bp insert in about Q15 reads every read is labelled `X`. Upstream's answer to that is `--large_induced_insertion`, which judges the junction anchors against a badread-simulated control; that code path crashed twice on upstream bugs (a missing `minimap2_opt` argument, then `[]` passed as `anchor_information`), so it is not used and the tool is not patched.
 
 ## Results on the TRAC CD19-CAR data
-20,000 reads per sample, seed 42.
+Earlier subsampled run (20,000 reads per sample, seed 42); the pipeline now uses all length-passing reads.
 
 | run | classified | WT | LargeIns | ≥ 80 % CAR insert | **KI %** |
 |---|---|---|---|---|---|
@@ -49,3 +49,7 @@ About 1.1 min and 0.6 GB per sample.
 ## Notes
 - **`--control` is strongly recommended.** Without it, homopolymer sequencing errors show up as small indels.
 - The repo's own examples pass unchanged; its README calls the induced file `induced.fasta`, while the shipped file is `Allele_induced.fasta`.
+
+## Parsing notes
+- `--integration_file` is read as strict 2-line FASTA (`CRISPRlungo_insert_analysis.py:66-71`), so `build_refs.py` writes all FASTAs unwrapped.
+- KI % counts only `Integration_info` hits on `CAR_insert` (amplicon self-duplications and inversions are not counted). `_split_N` segments are merged back into one read before counting.

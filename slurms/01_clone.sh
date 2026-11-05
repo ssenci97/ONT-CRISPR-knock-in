@@ -6,12 +6,12 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
-#SBATCH --output=logs/00_clone/clone_%j.log
+#SBATCH --output=logs/01_clone/clone_%j.log
 #SBATCH --open-mode=append
 ###################################### dependencies
 KV_ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
-NAME=00_clone
+NAME=01_clone
 TOOLS_TSV=configs/tools.tsv
 PARAMS=(TOOLS_TSV); kv_args "$@"
 ###################################### clone

@@ -22,7 +22,7 @@ def rc(s): return s.translate(COMP)[::-1]
 def read_seq(p): return "".join(l.strip() for l in open(p) if not l.startswith(">")).upper()
 def write_fasta(p, recs):
     with open(p, "w") as fh:
-        for n, s in recs: fh.write(f">{n}\n" + "".join(s[i:i + 80] + "\n" for i in range(0, len(s), 80)))
+        for n, s in recs: fh.write(f">{n}\n{s}\n")
 def templates(p):
     out, cur, keys = {}, None, {"Full Sequence": "full", "Left Homology Arm": "LHA", "Right Homology Arm": "RHA"}
     for row in openpyxl.load_workbook(p, read_only=True)["Table S1"].iter_rows(min_row=2, values_only=True):

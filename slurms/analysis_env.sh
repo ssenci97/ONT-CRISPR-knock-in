@@ -10,7 +10,7 @@ export THREADS="${SLURM_CPUS_PER_TASK:-${THREADS:-8}}" SEED=42
 SAMPLES=(Mock_r1 NoDonor_r1 dsDNA_r1 ssDNA_r1 ssCTS_r1)
 CONTROL=Mock_r1
 KV_T0=$SECONDS; KV_MAXRSS=0; KV_ARGS=(); KV_YFLAGS=()
-mkdir -p "$KV_ROOT"/logs/{00_clone,01_envs,20_fetch,21_build_refs,30_real,40_summary} "$DATA" "$REFS" "$RESULTS"
+mkdir -p "$KV_ROOT"/logs/{01_clone,02_envs,03_fetch,04_build_refs,05_alpine,06_lungo,07_crispresso,08_summary} "$DATA" "$REFS" "$RESULTS"
 ###################################### helpers
 kv_log() { echo "[SLURM-INFO] $*"; }
 kv_activate() { set +u; conda activate "$1"; set -u; }

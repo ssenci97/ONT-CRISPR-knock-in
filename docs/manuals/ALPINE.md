@@ -17,7 +17,7 @@ A CWL v1.2 workflow:
 6. **`group_output`** collects the files.
 
 ## Running it here
-`src/alpine_local.sh <job.yaml> <outdir>`, called by `slurms/30_real_alpine.sh`.
+`src/alpine_local.sh <job.yaml> <outdir>`, called by `slurms/05_alpine.sh`.
 
 The CWL needs private images (`aavlr_filter:1.6`, `aavlr_classify:1.6.0`, …) that are on no registry, and no build script ships with the repo. The wrapper therefore copies `CWL/`, repoints `/opt/<script>.py` at `tools/ALPINE/DockerFile/<step>/`, sets `coresMin` to `$THREADS` and `ramMin` to `RAM_MB`, deletes the `DockerRequirement` blocks, exports `PATCHER_MINIMAP2_PATH`, and runs `cwltool --no-container --preserve-entire-environment`.
 
@@ -35,7 +35,7 @@ Two known quirks:
 `src/build_refs.py` writes `refs/alpine/ref.fa` (WT_TRAC + Ref_HDR_CD19) and `refs/alpine/config.tsv` (WT cut 2299/2300, HDR insert 2301–4311). No ITR rows, because the donors are linear dsDNA, ssDNA and ssCTS, not AAV.
 
 ## Results on the TRAC CD19-CAR data
-20,000 reads per sample, seed 42. **KI % = HDR-CD19 / classified reads.**
+Earlier subsampled run (20,000 reads per sample, seed 42); the pipeline now uses all length-passing reads. **KI % = HDR-CD19 / classified reads.**
 
 | run | classified | HDR-CD19 | Non-HDR-without-ITR-CD19 | top classes |
 |---|---|---|---|---|
@@ -53,3 +53,6 @@ About 1 min and 0.38 GB per sample. One exception: ssCTS_r1 took 60 min, with ev
 - **Unclassified** is 11–30 %, mostly reads failing the primer, quality or full-length checks.
 
 Validated once against the shipped `testdata/`: the classification table was identical to the committed expected output.
+
+## primer_2 orientation
+The `filter_primer` step looks for `primer_1` at the start of the read and `primer_2` *as given* at the end. That means `primer_2` must be the reverse complement of the 5'→3' reverse primer (`filter_fastq_gz.py:107-116`). Checked on 3,096 dsDNA_r1 reads: 0 % pass with the reverse primer as written and 72 % pass with its reverse complement. `05_alpine.sh` now passes the reverse complement.
