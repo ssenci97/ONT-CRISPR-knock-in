@@ -4,7 +4,7 @@
 |---|---|
 | Paper | Chen et al. 2026, *Bioinformatics*, "ALPINE: a scalable pipeline for comprehensive classification of gene-editing outcomes from long-read amplicon sequencing" |
 | Repo | https://github.com/Maggi-Chen/ALPINE, pinned `b59121d` (v1.6) |
-| Envs | `kv_alpine` (python 3.10, samtools 1.19.2, BLAST+ 2.16, minimap2, bwa, pysam, biopython, plotly, r-base, cwltool, nodejs) and `kv_mm216` (minimap2 2.16 for `patcher.py`) |
+| Envs | `kv` (shared; minimap2 2.22, optional `tools/minimap2_216` fallback for `patcher.py`) |
 | Knock-in readout | **yes, purpose-built**: Unmodified, Unmodified-with-SNP, DEL/INS-small, DEL/INS-large, **HDR-\<vector\>**, Non-HDR-with/without-ITR, INV, DUP, Unclassified |
 
 ## What it does
@@ -19,7 +19,7 @@ A CWL v1.2 workflow:
 ## Running it here
 `src/alpine_local.sh <job.yaml> <outdir>`, called by `slurms/05_alpine.sh`.
 
-The CWL needs private images (`aavlr_filter:1.6`, `aavlr_classify:1.6.0`, …) that are on no registry, and no build script ships with the repo. The wrapper therefore copies `CWL/`, repoints `/opt/<script>.py` at `tools/ALPINE/DockerFile/<step>/`, sets `coresMin` to `$THREADS` and `ramMin` to `RAM_MB`, deletes the `DockerRequirement` blocks, exports `PATCHER_MINIMAP2_PATH`, and runs `cwltool --no-container --preserve-entire-environment`.
+The CWL needs private images (`aavlr_filter:1.6`, `aavlr_classify:1.6.0`, …) that are on no registry, and no build script ships with the repo. The wrapper therefore copies `CWL/`, repoints `/opt/<script>.py` at `tools/ALPINE/DockerFile/<step>/`, sets `coresMin` to `threads` and `ramMin` to `mem_mb`, deletes the `DockerRequirement` blocks, exports `PATCHER_MINIMAP2_PATH`, and runs `cwltool --no-container --preserve-entire-environment`.
 
 Two known quirks:
 - **`group_output` fails** with "str object expected; got None" under `--no-container`. It only copies files that already exist, so the wrapper treats it as success when the classification table is present.

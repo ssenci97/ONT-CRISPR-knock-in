@@ -3,9 +3,8 @@
 KV_ROOT="${KV_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
 NAME=alpine_local
-RAM_MB=${SLURM_MEM_PER_NODE:-6000}
-MM216="$CONDA_BASE/envs/kv_mm216/bin/minimap2"
-PARAMS=(RAM_MB); kv_args "$@"
+PARAMS=(mem_mb); kv_args "$@"
+minimap2_bin="$(command -v minimap2)"; [ -x "$TOOLS/minimap2_216/bin/minimap2" ] && minimap2_bin="$TOOLS/minimap2_216/bin/minimap2"
 JOB="$(realpath "${KV_ARGS[0]:?usage: alpine_local.sh <job.yaml> <outdir> [--yaml-in|--yaml-out]}")"; OUT="$(realpath -m "${KV_ARGS[1]:?missing outdir}")"
 A="$TOOLS/ALPINE"; D="$A/DockerFile"; WORK="$OUT/cwl_local"
 ###################################### local CWL
@@ -13,10 +12,11 @@ rm -rf "${WORK:?}"; mkdir -p "$WORK" "$OUT"; cp -r "$A/CWL/." "$WORK/"
 for f in "$WORK"/*.cwl "$WORK"/*/*.cwl; do
   sed -i -e "s#/opt/filter_fastq_gz.py#$D/filter/filter_fastq_gz.py#g" -e "s#/opt/classify_read.py#$D/classify/classify_read.py#g" \
     -e "s#/opt/count_classification_table.py#$D/count/count_classification_table.py#g" -e "s#/opt/merge_count_table.py#$D/merge_table/merge_count_table.py#g" \
-    -e "s#coresMin: [0-9]*#coresMin: $THREADS#" -e "s#ramMin: [0-9]*#ramMin: $RAM_MB#" -e '/class: DockerRequirement/{N;d}' "$f"
+    -e "s#coresMin: [0-9]*#coresMin: $threads#" -e "s#ramMin: [0-9]*#ramMin: $mem_mb#" -e '/class: DockerRequirement/{N;d}' "$f"
 done
-[ -x "$MM216" ] || { kv_log "missing $MM216 (create env kv_mm216)"; exit 1; }
-export PATCHER_MINIMAP2_PATH="$MM216"
+[ -x "$minimap2_bin" ] || { kv_log "minimap2 not found (run slurms/02_envs.sh)"; exit 1; }
+kv_log "minimap2 $minimap2_bin ($("$minimap2_bin" --version))"
+export PATCHER_MINIMAP2_PATH="$minimap2_bin"
 ###################################### run
 cd "$OUT"; rc=0
 cwltool --no-container --preserve-entire-environment --outdir "$OUT" "$WORK/aav_per_sample_workflow.cwl" "$JOB" || rc=$?

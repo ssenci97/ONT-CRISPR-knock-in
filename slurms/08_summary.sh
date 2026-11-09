@@ -14,5 +14,5 @@ KV_ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_RO
 NAME=08_summary
 PARAMS=(); kv_args "$@"
 ###################################### summary
-kv_activate kv_alpine; kv_time - python3 "$KV_ROOT/src/summarize.py" "${KV_YFLAGS[@]}"
+kv_time - python3 "$KV_ROOT/src/summarize.py" "${KV_YFLAGS[@]}"
 kv_footer

@@ -13,15 +13,15 @@
 KV_ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
 NAME=06_lungo
-CLEAVAGE_POS=17
-WINDOW=25
-PARAMS=(CLEAVAGE_POS WINDOW CONTROL); kv_args "$@"
+lungo_cleavage_pos=17
+lungo_window=25
+PARAMS=(lungo_cleavage_pos lungo_window); kv_args "$@"
 ###################################### per sample
-kv_activate kv_lungo; out="$RESULTS/CRISPRLungo"; mkdir -p "$out"; guide=$(kv_design "d['design']['guide']"); cd "$out"
-for label in $(kv_samples); do
-  rm -rf "${out:?}/${label:?}"; kv_log "CRISPRLungo $label"
-  kv_time "$out/time_$label.log" CRISPRlungo "$REFS/TRAC_WT.fa" "$DATA/$label.fastq.gz" "$out/$label" "$guide" \
-    --cleavage_pos "$CLEAVAGE_POS" --window "$WINDOW" --control "$DATA/$CONTROL.fastq.gz" \
-    --induced_sequence_path "$REFS/TRAC_KI.fa" --integration_file "$REFS/CAR_insert.fa" -t "$THREADS" > "$out/$label.log" 2>&1 || kv_log "!! $label failed (see $out/$label.log)"
+control_fastq="$DATA/$(kv_control).fastq.gz"; out="$RESULTS/CRISPRLungo"; mkdir -p "$out"; guide=$(kv_design "d['design']['guide']"); cd "$out"
+for sample_id in $(kv_samples); do
+  rm -rf "${out:?}/${sample_id:?}"; kv_log "CRISPRLungo $sample_id"
+  kv_time "$out/time_$sample_id.log" CRISPRlungo "$wt_fasta" "$DATA/$sample_id.fastq.gz" "$out/$sample_id" "$guide" \
+    --cleavage_pos "$lungo_cleavage_pos" --window "$lungo_window" --control "$control_fastq" \
+    --induced_sequence_path "$ki_fasta" --integration_file "$insert_fasta" -t "$threads" > "$out/$sample_id.log" 2>&1 || kv_log "!! $sample_id failed (see $out/$sample_id.log)"
 done
 kv_footer

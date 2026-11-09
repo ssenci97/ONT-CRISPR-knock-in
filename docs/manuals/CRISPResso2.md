@@ -4,7 +4,7 @@
 |---|---|
 | Papers | Clement et al. 2019, *Nat Biotechnol* (CRISPResso2); McFarlane, Polanco & Bogema 2024, *BMC Res Notes* 17:205, "CRISPR-Cas guide RNA indel analysis using CRISPResso2 with Nanopore sequencing data" |
 | Repo | https://github.com/pinellolab/CRISPResso2, pinned `240cd0a` (v2.3.4). The BMC paper has no code; its recipe is in Supp. Table 3 |
-| Env | `kv_crispresso`: bioconda `crispresso2` + seqkit |
+| Env | `kv` (shared): bioconda `crispresso2` 2.3.4 + seqkit |
 | Knock-in readout | **yes**: `-e` gives the expected HDR amplicon, and reads are assigned to WT or HDR |
 
 ## The nanopore recipe

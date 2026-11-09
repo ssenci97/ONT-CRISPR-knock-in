@@ -12,14 +12,15 @@
 KV_ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
 NAME=04_build_refs
-REGION=14:22540000..22560000:1
-PMC=PMC12166421
-PARAMS=(REGION PMC); kv_args "$@"
+region=14:22540000..22560000:1
+pmc=PMC12166421
+genomic_fasta=data/raw_refs/hg38_chr14_22540000_22560000.fa
+templates_xlsx=data/raw_refs/supp/mmc2.xlsx
+PARAMS=(region pmc); kv_args "$@"; [ $KV_YIN = 1 ] && kv_read build_refs genomic_fasta templates_xlsx
 ###################################### download
-RR="$DATA/raw_refs"; mkdir -p "$RR/supp"; G="$RR/hg38_chr14_22540000_22560000.fa"
-[ -s "$G" ] || { kv_log "hg38 $REGION"; curl -sf "https://rest.ensembl.org/sequence/region/human/$REGION?content-type=text/x-fasta" > "$G"; }
-[ -s "$RR/supp/mmc2.xlsx" ] || { kv_log "supplements $PMC"; curl -sfL -o "$RR/supp/supp.zip" "https://www.ebi.ac.uk/europepmc/webservices/rest/$PMC/supplementaryFiles"; unzip -o -q "$RR/supp/supp.zip" -d "$RR/supp"; }
+RR="$DATA/raw_refs"; G="$KV_ROOT/$genomic_fasta"; X="$KV_ROOT/$templates_xlsx"; mkdir -p "$RR/supp"
+[ -s "$G" ] || { kv_log "hg38 $region"; curl -sf "https://rest.ensembl.org/sequence/region/human/$region?content-type=text/x-fasta" > "$G"; }
+[ -s "$X" ] || { kv_log "supplements $pmc"; curl -sfL -o "$RR/supp/supp.zip" "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/supplementaryFiles"; unzip -o -q "$RR/supp/supp.zip" -d "$RR/supp"; }
 ###################################### build
-kv_activate kv_alpine
 cd "$KV_ROOT"; kv_time - python3 src/build_refs.py "${KV_YFLAGS[@]}"
 kv_footer

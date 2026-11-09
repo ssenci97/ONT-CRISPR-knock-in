@@ -5,9 +5,9 @@ Three published tools, each with a **native knock-in readout**, installed at pin
 
 | Tool | Commit | Env | Knock-in readout |
 |---|---|---|---|
-| ALPINE | `b59121d` (v1.6) | `kv_alpine` + `kv_mm216` | per-read classes: HDR, Non-HDR (partial integration), indels, SVs |
-| CRISPRLungo | `e31ea36` | `kv_lungo` | outcome classes + donor integration matching (`--integration_file`) |
-| CRISPResso2 | `240cd0a` (2.3.4) | `kv_crispresso` | reads assigned to the expected HDR amplicon (`-e`) |
+| ALPINE | `b59121d` (v1.6) | `kv` | per-read classes: HDR, Non-HDR (partial integration), indels, SVs |
+| CRISPRLungo | `e31ea36` | `kv` | outcome classes + donor integration matching (`--integration_file`) |
+| CRISPResso2 | `240cd0a` (2.3.4) | `kv` | reads assigned to the expected HDR amplicon (`-e`) |
 
 **Not included:** GREPore-seq, VAULT/IDMseq and longread_umi have no knock-in readout, so a KI % from them needs a hand-written metric. PANGEA's repository no longer exists.
 
@@ -21,7 +21,7 @@ Three published tools, each with a **native knock-in readout**, installed at pin
 The repository holds only scripts, envs, configs and docs. Everything else is created by the pipeline and gitignored.
 ```
 configs/   tools.tsv (repo, pinned commit, env) · param_configs.yaml
-envs/      kv_alpine · kv_mm216 · kv_lungo · kv_crispresso · kv_sra
+envs/      kv.yml (single env for all steps)
 slurms/    analysis_env.sh (shared library) · 01_clone · 02_envs · 03_fetch · 04_build_refs
            05_alpine · 06_lungo · 07_crispresso · 08_summary · run_all.sh
 src/       build_refs.py · summarize.py · alpine_local.sh
@@ -44,11 +44,11 @@ logs/      <step>/<tool>_<jobid>_<task>.log
 ## 5. Install
 ```bash
 bash slurms/01_clone.sh
-bash slurms/02_envs.sh            # or: bash slurms/02_envs.sh kv_lungo   (one env)
+bash slurms/02_envs.sh            # builds env kv; add --yaml-in with minimap2_216: 1 for the ALPINE fallback
 ```
 `02_envs` also does `pip install -e tools/CRISPRLungo`, which the tool needs.
 
-**ALPINE without Docker** (`src/alpine_local.sh`): the upstream CWL runs `/opt/*.py` inside private images that were never published. The script copies the CWL, repoints those paths at `tools/ALPINE/DockerFile/*`, lowers `coresMin`/`ramMin`, strips `DockerRequirement`, points `PATCHER_MINIMAP2_PATH` at the minimap2 2.16 in `kv_mm216`, and runs `cwltool --no-container`.
+**ALPINE without Docker** (`src/alpine_local.sh`): the upstream CWL runs `/opt/*.py` inside private images that were never published. The script copies the CWL, repoints those paths at `tools/ALPINE/DockerFile/*`, lowers `coresMin`/`ramMin`, strips `DockerRequirement`, points `PATCHER_MINIMAP2_PATH` at `tools/minimap2_216` if present (`minimap2_216: 1` in step 02), else at the minimap2 2.22 in `kv`, and runs `cwltool --no-container`.
 - The last step, `group_output`, can fail with "str object expected; got None". It only copies finished files, so the run counts as OK when the classification table exists.
 - `MPLBACKEND=Agg` is exported, because ALPINE calls `plt.show()`, which blocks forever on a desktop session.
 

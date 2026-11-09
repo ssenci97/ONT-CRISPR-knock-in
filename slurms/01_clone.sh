@@ -12,13 +12,13 @@
 KV_ROOT="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"; source "$KV_ROOT/slurms/analysis_env.sh"
 ###################################### parameters
 NAME=01_clone
-TOOLS_TSV=configs/tools.tsv
-PARAMS=(TOOLS_TSV); kv_args "$@"
+tools_tsv=configs/tools.tsv
+PARAMS=(tools_tsv); kv_args "$@"
 ###################################### clone
 mkdir -p "$TOOLS"
 while IFS=$'\t' read -r name repo commit _; do
   [ -d "$TOOLS/$name/.git" ] || git clone -q "$repo" "$TOOLS/$name"
   git -C "$TOOLS/$name" fetch -q origin; git -C "$TOOLS/$name" checkout -q -f "$commit"
   kv_log "$name @ $(git -C "$TOOLS/$name" rev-parse --short HEAD)"
-done < <(tail -n +2 "$KV_ROOT/$TOOLS_TSV")
+done < <(tail -n +2 "$KV_ROOT/$tools_tsv")
 kv_footer

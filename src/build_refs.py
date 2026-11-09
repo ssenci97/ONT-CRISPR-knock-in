@@ -14,7 +14,7 @@ PARAMS = dict(
     templates_xlsx="data/raw_refs/supp/mmc2.xlsx", template_title="TRAC CD19-CAR HDR template for editing with AsCas12a",
     guide="GAGTCTCTCAGCTGGTACACGGC", cut_offset_from_guide_5p=18,
     primer_f_full="TTTCTGTTGGTGCTGATATTGCTTCAATCACTGCTGTGTCCCT", primer_r_full="ACTTGCCTGTCGCTCTATCTTCTCCCACCCCAGACCTCCTAGTT",
-    primer_f_specific="TTCAATCACTGCTGTGTCCCT", primer_r_specific="TCCCACCCCAGACCTCCTAGTT", outdir="refs")
+    primer_f_specific="TTCAATCACTGCTGTGTCCCT", primer_r_specific="TCCCACCCCAGACCTCCTAGTT", out_dir="refs")
 
 ###################################### helpers
 def log(m): print(f"[PYTHON-INFO] {m}", flush=True)
@@ -43,7 +43,7 @@ def yaml_io(p, a):
 ###################################### main
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--yaml-in", action="store_true"); ap.add_argument("--yaml-out", action="store_true")
-    p = yaml_io(dict(PARAMS), ap.parse_args()); os.chdir(ROOT); o = p["outdir"]; os.makedirs(f"{o}/alpine", exist_ok=True)
+    p = yaml_io(dict(PARAMS), ap.parse_args()); os.chdir(ROOT); o = p["out_dir"]; os.makedirs(f"{o}/alpine", exist_ok=True)
     g = read_seq(p["genomic_fasta"]); f, r = p["primer_f_specific"].upper(), p["primer_r_specific"].upper(); fs, rs = g.find(f), g.find(rc(r))
     if fs < 0 or rs < 0: sys.exit("[PYTHON-INFO] primers not found in genomic window")
     wt, gs = g[fs:rs + len(r)], p["genomic_start_1based"] + fs

@@ -4,7 +4,7 @@
 |---|---|
 | Paper | Hwang, Pinello et al. 2026, *Nature Biomedical Engineering*, "Analysing long-read CRISPR experiments with CRISPRLungo" |
 | Repo | https://github.com/pinellolab/CRISPRLungo, pinned `e31ea36` (actively maintained) |
-| Env | `kv_lungo`: the repo's `environment.yml` (python 3.10, minimap2 2.22, samtools, pysam 0.19.1, pyspoa, vsearch, edlib) plus `pip install -e tools/CRISPRLungo` |
+| Env | `kv` (shared): the repo's `environment.yml` (python 3.10, minimap2 2.22, samtools, pysam 0.19.1, pyspoa, vsearch, edlib) plus `pip install -e tools/CRISPRLungo` |
 | Knock-in readout | **yes**: `--induced_sequence_path` labels reads `Precise` / `Precise_with_mutations`, and `--integration_file` names large insertions by matching them to the donor sequence |
 
 ## What it does

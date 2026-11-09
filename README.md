@@ -36,4 +36,4 @@ bash slurms/06_lungo.sh --yaml-in    # rerun with them
 ## Repository contents
 Scripts, envs, configs and docs only. `tools/ data/ refs/ results/ logs/` are created by the pipeline and gitignored.
 
-Full documentation: **[Manual.md](Manual.md)**. Per-tool notes: [ALPINE](docs/manuals/ALPINE.md) · [CRISPRLungo](docs/manuals/CRISPRLungo.md) · [CRISPResso2](docs/manuals/CRISPResso2.md).
+Full documentation: **[Manual.md](Manual.md)**. Per-tool notes: [ALPINE](docs/manuals/ALPINE.md) · [CRISPRLungo](docs/manuals/CRISPRLungo.md) · [CRISPResso2](docs/manuals/CRISPResso2.md). Shared input names: [Inputs](docs/manuals/Inputs.md).

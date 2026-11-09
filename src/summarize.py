@@ -8,9 +8,9 @@ from tqdm import tqdm
 T0 = time.time()
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES, PARAM_YAML, NAME = f"{ROOT}/results", f"{ROOT}/configs/param_configs.yaml", "summarize"
-SAMPLES = {"Mock_r1": "mock_electroporated", "NoDonor_r1": "rnp_no_donor", "dsDNA_r1": "rnp_dsDNA_donor", "ssDNA_r1": "rnp_ssDNA_donor", "ssCTS_r1": "rnp_ssCTS_donor"}
+SAMPLES_TSV = f"{ROOT}/configs/samples.tsv"
 PARAMS = dict(lungo_min_insert_frac=0.8)
-COLS = ["tool", "label", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "metric", "notes"]
+COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "metric", "notes"]
 
 ###################################### helpers
 def log(m): print(f"[PYTHON-INFO] {m}", flush=True)
@@ -23,8 +23,8 @@ def yaml_io(p, a):
     return p
 
 ###################################### tool metrics
-def alpine(label, d, p):
-    hits = [h for h in glob.glob(f"{RES}/ALPINE/{label}/**/{label}_read_classification.txt", recursive=True) if "/cwl_local/" not in h]
+def alpine(sample_id, d, p):
+    hits = [h for h in glob.glob(f"{RES}/ALPINE/{sample_id}/**/{sample_id}_read_classification.txt", recursive=True) if "/cwl_local/" not in h]
     if not hits: return None
     rows = list(csv.reader(open(hits[0]), delimiter="\t")); cnt = {}
     for k, v in zip(rows[0], rows[-1]):
@@ -34,8 +34,8 @@ def alpine(label, d, p):
     return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric="HDR class / classified reads",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])[:5] if v))
 
-def lungo(label, d, p):
-    f = f"{RES}/CRISPRLungo/{label}/results/read_classification.txt"
+def lungo(sample_id, d, p):
+    f = f"{RES}/CRISPRLungo/{sample_id}/results/read_classification.txt"
     if not os.path.exists(f): return None
     reads, cls = {}, {}
     for r in tsv(f):
@@ -46,8 +46,8 @@ def lungo(label, d, p):
     return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads with CAR_insert integration >={p['lungo_min_insert_frac']:.0%} of insert / classified reads (split segments merged)",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cls.items(), key=lambda x: -x[1])[:5]))
 
-def crispresso(label, d, p):
-    f = f"{RES}/CRISPResso2/CRISPResso_on_{label}/CRISPResso_quantification_of_editing_frequency.txt"
+def crispresso(sample_id, d, p):
+    f = f"{RES}/CRISPResso2/CRISPResso_on_{sample_id}/CRISPResso_quantification_of_editing_frequency.txt"
     if not os.path.exists(f): return None
     rows = tsv(f); n, rin = int(rows[0]["Reads_aligned_all_amplicons"]), int(rows[0]["Reads_in_input"])
     k = sum(int(r["Reads_aligned"]) for r in rows if r["Amplicon"] == "HDR"); wt = next(r for r in rows if r["Amplicon"] != "HDR")
@@ -60,14 +60,14 @@ TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo, "CRISPResso2": crispresso}
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--yaml-in", action="store_true"); ap.add_argument("--yaml-out", action="store_true")
     p = yaml_io(dict(PARAMS), ap.parse_args()); d = json.load(open(f"{ROOT}/refs/design.json"))["design"]
-    sp = f"{ROOT}/data/read_stats.tsv"; sub = {r["label"]: r for r in tsv(sp)} if os.path.exists(sp) else {}
-    out = []
-    for tool, label in tqdm([(t, s) for t in TOOLS for s in SAMPLES], desc="[PYTHON-INFO] summarize", disable=None):
-        r = dict(tool=tool, label=label, condition=SAMPLES[label], reads_in=sub.get(label, {}).get("len_pass", ""))
-        r.update(TOOLS[tool](label, d, p) or dict(notes="missing output")); out.append(r)
+    sp = f"{ROOT}/data/read_stats.tsv"; sub = {r["sample_id"]: r for r in tsv(sp)} if os.path.exists(sp) else {}
+    SAMPLES = {r["sample_id"]: r["condition"] for r in tsv(SAMPLES_TSV)}; out = []
+    for tool, sample_id in tqdm([(t, s) for t in TOOLS for s in SAMPLES], desc="[PYTHON-INFO] summarize", disable=None):
+        r = dict(tool=tool, sample_id=sample_id, condition=SAMPLES[sample_id], reads_in=sub.get(sample_id, {}).get("len_pass", ""))
+        r.update(TOOLS[tool](sample_id, d, p) or dict(notes="missing output")); out.append(r)
     with open(f"{RES}/summary.tsv", "w") as fh:
         w = csv.DictWriter(fh, COLS, delimiter="\t", extrasaction="ignore"); w.writeheader(); [w.writerow({k: "" if r.get(k) is None else r.get(k, "") for k in COLS}) for r in out]
-    ki = {(r["tool"], r["label"]): r.get("ki_pct") for r in out}
+    ki = {(r["tool"], r["sample_id"]): r.get("ki_pct") for r in out}
     mx = "tool\t" + "\t".join(SAMPLES) + "\n" + "".join(t + "\t" + "\t".join("NA" if ki[(t, s)] is None else str(ki[(t, s)]) for s in SAMPLES) + "\n" for t in TOOLS)
     open(f"{RES}/summary_matrix.tsv", "w").write(mx)
     for l in mx.splitlines(): log("KI% " + l.replace("\t", " | "))
