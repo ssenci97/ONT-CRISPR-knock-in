@@ -130,6 +130,8 @@ From an earlier **subsampled** run (20,000 reads per sample, seed 42); supersede
 | CRISPResso2 killed for low memory | each worker holds full-length alignments of both 4–6 kb amplicons; `-p 2` locally |
 | CRISPResso2 runs for hours, or hangs while plotting | 64 cores / 240G / 48 h per sample, `--suppress_report --suppress_plots`, `timeout 47h` |
 | ALPINE reports far less knock-in than the other two | by design plus a bug. It needs the insert to reach `truncated_cutoff` (now `ki_min_insert_frac`, was 0.95 on nanopore) **and** both homology arms to align. The arm check runs `minimap2 -ax map-hifi` hardcoded in `DockerFile/classify/utils/data_utils.py`, ignoring `data_type: nanopore`, so true HDR reads fail it on ONT data. Not yet patched. |
+| podman: `Failed to obtain podman configuration: lstat /run/user/<uid>` | no systemd user session on that node. `containers/build.sh` and `analysis_env.sh` now fall back to `$TMPDIR/podman-$(id -u)`; set `XDG_RUNTIME_DIR` yourself if you call podman directly |
+| podman: `newuidmap: write to uid_map failed` or "cannot find UID in /etc/subuid" | rootless podman needs a subuid/subgid range for your account; only a cluster admin can add it |
 | Containerized `sbatch` job: "No such file or directory" on the script | SLURM runs a copy from its spool dir, which is not bind-mounted; `analysis_env.sh` copies it into `logs/` first. If you see this, your `KV_BIND` does not cover `$KV_ROOT`. |
 | Steps 06/07 finish instantly with empty results | you are running the **base** image, which has no CRISPRLungo or CRISPResso2. Build and run the full one. The steps now preflight the binary and exit 1. |
 

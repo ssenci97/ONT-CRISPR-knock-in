@@ -23,7 +23,9 @@ if [ -z "${KV_INSIDE:-}" ] && { [ -n "${KV_SIF:-}" ] || [ -n "${KV_IMAGE:-}" ]; 
     for e in "${kv_pass[@]}"; do kv_cmd+=(--env "$e"); done
     exec "${kv_cmd[@]}" "$KV_SIF" bash "$kv_script" "$@"
   fi
-  [ -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" ] || { echo "[SLURM-INFO] rootless podman needs XDG_RUNTIME_DIR; use KV_SIF on the cluster"; exit 1; }
+  if [ ! -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" ]; then
+    export XDG_RUNTIME_DIR="${TMPDIR:-/tmp}/podman-$(id -u)"; mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+  fi
   kv_cmd=(podman run --rm --userns=keep-id -w "$PWD")
   for b in "${kv_paths[@]}"; do kv_cmd+=(-v "$b:$b"); done
   for e in "${kv_pass[@]}"; do kv_cmd+=(-e "$e"); done

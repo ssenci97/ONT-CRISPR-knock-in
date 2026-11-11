@@ -23,6 +23,10 @@ pinned() { local c; c=$(commit_of "$1"); [[ "$c" =~ ^[0-9a-f]{40}$ ]] || { log "
 repo_of() { awk -F'\t' -v n="$1" 'NR>1 && $1==n{print $2}' configs/tools.tsv; }
 ###################################### build
 command -v "$engine" >/dev/null || { log "$engine not found"; exit 1; }
+if [ "$engine" = podman ] && [ ! -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" ]; then
+  export XDG_RUNTIME_DIR="${TMPDIR:-/tmp}/podman-$(id -u)"; mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+  log "no /run/user/$(id -u); using XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+fi
 MODE="${1:-all}"
 [[ "$owner" =~ ^[a-z0-9._-]+$ ]] || { log "KV_OWNER must be lowercase: '$owner'"; exit 1; }
 [ "$MODE" = push ] && [ "$owner" = local ] && { log "set KV_OWNER to your lowercase registry namespace before pushing, e.g. KV_OWNER=ritareasciencepark"; exit 1; }
