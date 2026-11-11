@@ -11,7 +11,7 @@ ARG ALPINE_COMMIT=b59121d132f20e5056b76038b50dc136a91a756b
 ENV TOOLS=/opt/tools CONDA_ALWAYS_YES=true MPLBACKEND=Agg QT_QPA_PLATFORM=offscreen \
     HOME=/tmp MPLCONFIGDIR=/tmp/mpl PYTHONNOUSERSITE=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get -o APT::Sandbox::User=root update && apt-get install -y --no-install-recommends \
       git curl unzip time procps util-linux ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
