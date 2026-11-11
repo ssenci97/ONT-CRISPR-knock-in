@@ -1,0 +1,23 @@
+digraph single_tool {
+  graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
+         label="Single-tool run:  sbatch slurms/06_lungo.sh"];
+  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
+  edge [color="#6b6862", arrowsize=0.7];
+
+  subgraph cluster_in {
+    label="read from disk, unchanged"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
+    fastq  [label="data/<sample_id>.fastq.gz", fillcolor="#e8f1ee"];
+    refs   [label="refs/TRAC_WT.fa\nrefs/TRAC_KI.fa\nrefs/CAR_insert.fa", fillcolor="#e8f1ee"];
+    design [label="refs/design.json", fillcolor="#e8f1ee"];
+    sheet  [label="configs/samples.tsv", fillcolor="#fdf2e3"];
+    yaml   [label="configs/param_configs.yaml", fillcolor="#fdf2e3"];
+  }
+  step [label="06_lungo.sh\narray task N = row N of samples.tsv", fillcolor="#f2eff9"];
+  out  [label="results/CRISPRLungo/<sample_id>/", fillcolor="#f6f5f2"];
+  meta [label="results/meta/<sample_id>.json\n(step record appended)", fillcolor="#f6f5f2"];
+
+  fastq -> step; refs -> step; design -> step; sheet -> step; yaml -> step;
+  step -> out; step -> meta;
+  note [shape=note, fillcolor="#fdf2e3", label="Steps 01-04 must have run before.\nNothing here is rebuilt or re-filtered."];
+  { rank=same; step; note; }
+}

@@ -9,7 +9,8 @@ T0 = time.time()
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES, PARAM_YAML, NAME = f"{ROOT}/results", f"{ROOT}/configs/param_configs.yaml", "summarize"
 SAMPLES_TSV = f"{ROOT}/configs/samples.tsv"
-PARAMS = dict(lungo_min_insert_frac=0.8)
+PARAMS = dict()
+SHARED = dict(ki_min_insert_frac=0.8)
 COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "metric", "notes"]
 
 ###################################### helpers
@@ -18,8 +19,9 @@ def tsv(p): return list(csv.DictReader(open(p), delimiter="\t"))
 def pct(a, b): return round(100.0 * a / b, 2) if b else None
 def yaml_io(p, a):
     c = (yaml.safe_load(open(PARAM_YAML)) if os.path.exists(PARAM_YAML) else None) or {}
+    p.update(c.get("shared", {}))
     if a.yaml_in: p.update(c.get(NAME, {})); log(f"params read from {PARAM_YAML} [{NAME}]")
-    if a.yaml_out: c[NAME] = p; yaml.safe_dump(c, open(PARAM_YAML, "w"), sort_keys=False); log(f"params written to {PARAM_YAML} [{NAME}]")
+    if a.yaml_out: c[NAME] = {k: v for k, v in p.items() if k not in SHARED}; yaml.safe_dump(c, open(PARAM_YAML, "w"), sort_keys=False); log(f"params written to {PARAM_YAML} [{NAME}]")
     return p
 
 ###################################### tool metrics
@@ -31,7 +33,7 @@ def alpine(sample_id, d, p):
         try: cnt[k] = int(float(v))
         except ValueError: pass
     n, k = sum(cnt.values()), sum(v for c, v in cnt.items() if c.upper().startswith("HDR"))
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric="HDR class / classified reads",
+    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"ALPINE HDR class (transgene >={p['ki_min_insert_frac']:.0%} of insert, both homology arms validated) / classified reads",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])[:5] if v))
 
 def lungo(sample_id, d, p):
@@ -41,9 +43,9 @@ def lungo(sample_id, d, p):
     for r in tsv(f):
         rid = re.sub(r"_split_\d+$", "", r["Read_id"]); cls[r["Classification"]] = cls.get(r["Classification"], 0) + 1
         span = max([int(b) - int(a) + 1 for a, b in re.findall(r"CAR_insert_\d+to\d+inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or "")] or [0])
-        reads[rid] = reads.get(rid, False) or span >= p["lungo_min_insert_frac"] * d["insert_len"]
+        reads[rid] = reads.get(rid, False) or span >= p["ki_min_insert_frac"] * d["insert_len"]
     n, k = len(reads), sum(reads.values())
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads with CAR_insert integration >={p['lungo_min_insert_frac']:.0%} of insert / classified reads (split segments merged)",
+    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads with CAR_insert integration >={p['ki_min_insert_frac']:.0%} of insert / classified reads (split segments merged)",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cls.items(), key=lambda x: -x[1])[:5]))
 
 def crispresso(sample_id, d, p):
@@ -51,7 +53,7 @@ def crispresso(sample_id, d, p):
     if not os.path.exists(f): return None
     rows = tsv(f); n, rin = int(rows[0]["Reads_aligned_all_amplicons"]), int(rows[0]["Reads_in_input"])
     k = sum(int(r["Reads_aligned"]) for r in rows if r["Amplicon"] == "HDR"); wt = next(r for r in rows if r["Amplicon"] != "HDR")
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric="HDR-amplicon reads / aligned reads",
+    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric="HDR-amplicon reads / aligned reads (global alignment, no insert-length threshold)",
                 notes=f"input {rin}, aligned {n} ({pct(n, rin)}%), WT-assigned modified {float(wt['Modified%']):.1f}%")
 
 TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo, "CRISPResso2": crispresso}
@@ -59,7 +61,7 @@ TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo, "CRISPResso2": crispresso}
 ###################################### main
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--yaml-in", action="store_true"); ap.add_argument("--yaml-out", action="store_true")
-    p = yaml_io(dict(PARAMS), ap.parse_args()); d = json.load(open(f"{ROOT}/refs/design.json"))["design"]
+    p = yaml_io({**SHARED, **PARAMS}, ap.parse_args()); d = json.load(open(f"{ROOT}/refs/design.json"))["design"]
     sp = f"{ROOT}/data/read_stats.tsv"; sub = {r["sample_id"]: r for r in tsv(sp)} if os.path.exists(sp) else {}
     SAMPLES = {r["sample_id"]: r["condition"] for r in tsv(SAMPLES_TSV)}; out = []
     for tool, sample_id in tqdm([(t, s) for t in TOOLS for s in SAMPLES], desc="[PYTHON-INFO] summarize", disable=None):

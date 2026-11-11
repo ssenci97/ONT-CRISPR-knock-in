@@ -15,13 +15,14 @@ NAME=02_envs
 envs=kv
 minimap2_216=0
 PARAMS=(envs minimap2_216); kv_args "$@"; [ ${#KV_ARGS[@]} -gt 0 ] && envs="${KV_ARGS[*]}"
+[ -n "${KV_INSIDE:-}" ] && { kv_log "environment comes from the image"; kv_footer; exit 0; }
 ###################################### envs
 failed=()
 for e in $envs; do
   kv_log "env $e"
   if conda env list | awk '{print $1}' | grep -qx "$e"; then conda env update -q -n "$e" -f "$KV_ROOT/envs/$e.yml" --prune || failed+=("$e")
   else conda env create -q -f "$KV_ROOT/envs/$e.yml" || failed+=("$e"); fi
-  [ "$e" = kv ] && { kv_activate kv; pip install -q -e "$TOOLS/CRISPRLungo"; conda deactivate; }
+  [ "$e" = kv ] && { kv_activate kv; pip install -q --no-deps --no-build-isolation -e "$TOOLS/CRISPRLungo"; conda deactivate; }
 done
 [ "$minimap2_216" = 1 ] && [ ! -x "$TOOLS/minimap2_216/bin/minimap2" ] && conda create -y -q -p "$TOOLS/minimap2_216" -c conda-forge -c bioconda minimap2=2.16
 kv_log "failed envs: ${failed[*]:-none}"; kv_footer

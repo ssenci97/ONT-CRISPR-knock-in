@@ -1,0 +1,44 @@
+ARG BASE_REF=docker.io/condaforge/miniforge3@sha256:569afc65b5338d35e276adf9a860025cd37a677659d19dcb71fc1d4c2063a94e
+FROM ${BASE_REF}
+
+LABEL org.opencontainers.image.title="ont-knockin-val-base"
+LABEL org.opencontainers.image.description="Conda environment, cwltool, minimap2 2.16 and ALPINE (MIT) for the KNOCKIN-VAL pipeline. Contains no license-restricted tool."
+LABEL org.opencontainers.image.licenses="MIT"
+
+ARG ALPINE_REPO=https://github.com/Maggi-Chen/ALPINE
+ARG ALPINE_COMMIT=b59121d132f20e5056b76038b50dc136a91a756b
+
+ENV TOOLS=/opt/tools CONDA_ALWAYS_YES=true MPLBACKEND=Agg QT_QPA_PLATFORM=offscreen \
+    HOME=/tmp MPLCONFIGDIR=/tmp/mpl PYTHONNOUSERSITE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git curl unzip time procps util-linux ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY envs/kv.yml containers/kv.lock.tx[t] /tmp/
+RUN if [ -s /tmp/kv.lock.txt ]; then \
+      conda create -q -n kv --file /tmp/kv.lock.txt; \
+    else \
+      grep -v -E '^[[:space:]]*-[[:space:]]*crispresso2([=<>].*)?$' /tmp/kv.yml > /tmp/kv_base.yml \
+      && ! grep -qi crispresso /tmp/kv_base.yml \
+      && conda env create -q -f /tmp/kv_base.yml; \
+    fi \
+    && ! conda list -n kv | grep -qi crispresso \
+    && grep -E '^[[:space:]]*-[[:space:]]+[a-z0-9_.-]+=' /tmp/kv.yml | sed 's/^[[:space:]]*-[[:space:]]*//' > /opt/conda/envs/kv/conda-meta/pinned \
+    && conda clean -afy
+
+RUN conda create -q -p "$TOOLS/minimap2_216" -c conda-forge -c bioconda minimap2=2.16 \
+    && conda clean -afy
+
+RUN git config --system --add safe.directory '*' \
+    && git clone -q "$ALPINE_REPO" "$TOOLS/ALPINE" \
+    && git -C "$TOOLS/ALPINE" checkout -q -f "$ALPINE_COMMIT" \
+    && [ "$(git -C "$TOOLS/ALPINE" rev-parse HEAD)" = "$ALPINE_COMMIT" ]
+
+COPY LICENSES /opt/licenses
+COPY LICENSES.md /opt/licenses/README.md
+
+RUN conda run -n kv python -c "import pysam, Bio, yaml, openpyxl, tqdm" \
+    && conda run -n kv cwltool --version \
+    && conda run -n kv seqkit version \
+    && "$TOOLS/minimap2_216/bin/minimap2" --version

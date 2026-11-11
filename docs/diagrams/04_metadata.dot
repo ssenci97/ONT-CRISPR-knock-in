@@ -1,0 +1,25 @@
+digraph metadata {
+  graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
+         label="Where sample metadata comes from and where the run records it"];
+  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
+  edge [color="#6b6862", arrowsize=0.7];
+
+  schema [label="configs/sample_schema.json\n(field definitions)", fillcolor="#fdf2e3"];
+  form   [label="gui/submit.html + submit.js\n(form, no logic about files)", fillcolor="#f2eff9"];
+  serve  [label="src/gui_serve.py\n(validates, writes)", fillcolor="#f2eff9"];
+  sheet  [label="configs/samples.tsv\n(what the pipeline runs on)", fillcolor="#e8f1ee"];
+  sjson  [label="configs/samples/<sample_id>.json\n(what the wet lab submitted)", fillcolor="#e8f1ee"];
+
+  schema -> form [label="GET /api/schema", fontsize=9, fontname="Helvetica"];
+  form -> serve [label="POST /api/samples", fontsize=9, fontname="Helvetica"];
+  serve -> sheet; serve -> sjson;
+  serve -> arrays [label="sets array size", fontsize=9, fontname="Helvetica"];
+  arrays [label="slurms/0{3,5,6,7}_*.sh\n#SBATCH --array=1-N", fillcolor="#f6f5f2"];
+
+  steps [label="pipeline steps\n(kv_meta <sample_id> <step> k=v)", fillcolor="#f2eff9"];
+  writer [label="src/sample_meta.py\n(single writer)", fillcolor="#f2eff9"];
+  rjson [label="results/meta/<sample_id>.json\nsubmitted + per-step params,\nread counts, job ids, commit", fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
+
+  sheet -> steps; sjson -> writer [label="copied in", fontsize=9, fontname="Helvetica"];
+  steps -> writer -> rjson;
+}

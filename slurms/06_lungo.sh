@@ -16,12 +16,18 @@ NAME=06_lungo
 lungo_cleavage_pos=17
 lungo_window=25
 PARAMS=(lungo_cleavage_pos lungo_window); kv_args "$@"
+###################################### preflight
+command -v CRISPRlungo >/dev/null || { kv_log "CRISPRlungo not on PATH"; exit 1; }
+rc=0
 ###################################### per sample
 control_fastq="$DATA/$(kv_control).fastq.gz"; out="$RESULTS/CRISPRLungo"; mkdir -p "$out"; guide=$(kv_design "d['design']['guide']"); cd "$out"
 for sample_id in $(kv_samples); do
-  rm -rf "${out:?}/${sample_id:?}"; kv_log "CRISPRLungo $sample_id"
+  rm -rf "${out:?}/${sample_id:?}"
+  kv_meta "$sample_id" "$NAME" cleavage_pos="$lungo_cleavage_pos" window="$lungo_window" control="$(kv_control)"
+  kv_log "CRISPRLungo $sample_id"
   kv_time "$out/time_$sample_id.log" CRISPRlungo "$wt_fasta" "$DATA/$sample_id.fastq.gz" "$out/$sample_id" "$guide" \
     --cleavage_pos "$lungo_cleavage_pos" --window "$lungo_window" --control "$control_fastq" \
-    --induced_sequence_path "$ki_fasta" --integration_file "$insert_fasta" -t "$threads" > "$out/$sample_id.log" 2>&1 || kv_log "!! $sample_id failed (see $out/$sample_id.log)"
+    --induced_sequence_path "$ki_fasta" --integration_file "$insert_fasta" -t "$threads" > "$out/$sample_id.log" 2>&1 || { kv_log "!! $sample_id failed (see $out/$sample_id.log)"; rc=1; }
 done
 kv_footer
+exit $rc

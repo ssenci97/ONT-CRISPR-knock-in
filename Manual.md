@@ -12,25 +12,31 @@ Three published tools, each with a **native knock-in readout**, installed at pin
 **Not included:** GREPore-seq, VAULT/IDMseq and longread_umi have no knock-in readout, so a KI % from them needs a hand-written metric. PANGEA's repository no longer exists.
 
 ## 2. Requirements
-- `conda` ≥ 23 (libmamba solver), `git`, `curl`.
-- About 15 GB free: 6.5 GB of reads, 5 GB of conda envs, the rest intermediate.
-- No Docker and no GPU.
+- Native: `conda` ≥ 23 (libmamba solver), `git`, `curl`.
+- Containerized: rootless `podman` to build, `apptainer` to run on the cluster. No Docker, no sudo, no GPU.
+- About 15 GB free: 6.5 GB of reads, 5 GB of conda envs, the rest intermediate. Add ~6 GB for the image.
 - SLURM headers request 16 CPU / 32 GB on partition GENOA. Locally the scripts use 8 threads.
 
 ## 3. Layout
 The repository holds only scripts, envs, configs and docs. Everything else is created by the pipeline and gitignored.
 ```
-configs/   tools.tsv (repo, pinned commit, env) · param_configs.yaml
+configs/   samples.tsv · samples/<sample_id>.json (submitted metadata) · sample_schema.json
+           tools.tsv (repo, pinned commit) · param_configs.yaml · refs.sha256 (pin)
 envs/      kv.yml (single env for all steps)
 slurms/    analysis_env.sh (shared library) · 01_clone · 02_envs · 03_fetch · 04_build_refs
            05_alpine · 06_lungo · 07_crispresso · 08_summary · run_all.sh
-src/       build_refs.py · summarize.py · alpine_local.sh
-docs/manuals/{ALPINE,CRISPRLungo,CRISPResso2}.md
+src/       build_refs.py · summarize.py · alpine_local.sh · sample_meta.py · gui_serve.py · diagrams.sh
+gui/       submit.html · submit.css · submit.js (the console: samples, run, results)
+containers/ Dockerfile.base · Dockerfile · build.sh · pins.env · kv.lock.txt (pin)
+LICENSES/  one file per tool, indexed by LICENSES.md at the root
+docs/manuals/{ALPINE,CRISPRLungo,CRISPResso2,Inputs}.md · docs/diagrams/*.dot · docs/img/*.svg
 
 tools/     the 3 cloned repos                         created by 01_clone
 data/      meta/ · raw/ · raw_refs/ · <label>.fastq.gz · read_stats.tsv  created by 03_fetch
 refs/      TRAC_WT.fa · TRAC_KI.fa · CAR_insert.fa · design.json · alpine/  created by 04_build_refs
 results/   <tool>/ · summary.tsv · summary_matrix.tsv        created by 05–07 and 08_summary
+           meta/<sample_id>.json  run provenance, written by src/sample_meta.py
+           run.log · run_state.json   the console's own launch record
 logs/      <step>/<tool>_<jobid>_<task>.log
 ```
 
@@ -39,14 +45,26 @@ logs/      <step>/<tool>_<jobid>_<task>.log
 - **SLURM:** every step carries a GENOA header. The per-sample steps (`03_fetch`, `05`–`07`) are arrays (`--array=1-5`, fetch `1-5%2`), sized for full runs (~320–490k reads per sample), and `SLURM_ARRAY_TASK_ID` selects the sample. Run with `bash`, they loop over all samples.
 - **Logs** start with `[SLURM-INFO]` or `[PYTHON-INFO]` and end with `date | elapsed | max RSS`.
 - **No subsampling anywhere.** Every tool gets every read that passes the length filter. `SEED=42` is still exported for any random step.
-- Samples and the control are defined in `slurms/analysis_env.sh` (`SAMPLES`, `CONTROL`).
+- **Samples** live in `configs/samples.tsv` (`sample_id`, `srr`, `condition`, `control`). The control is the
+  first row with `control=1`. Submit them with the form (`python3 src/gui_serve.py`) or edit the file.
+- **Shared parameters** sit in the `shared:` section of `configs/param_configs.yaml` and are read by every
+  step. `ki_min_insert_frac` (0.80) drives both ALPINE's `truncated_cutoff` and CRISPRLungo's insert span,
+  so the two tools answer the same question.
+- **Containers:** set `KV_SIF` (apptainer) or `KV_IMAGE` (podman) and every step re-executes itself inside
+  the image. Unset, everything runs natively. See the Containers section of the README.
+- **The console** (`python3 src/gui_serve.py`) submits samples, launches the default run and shows results
+  and per-sample metadata. It must run on the host, never inside the container, because it calls `sbatch`.
+  It auto-detects `containers/ont-knockin-val.sif`. One run at a time; `results/run_state.json` holds the pid.
+- **Everything external is pinned**: tool commits (`configs/tools.tsv`), base image digest
+  (`containers/pins.env`), conda packages (`containers/kv.lock.txt`), downloaded references
+  (`configs/refs.sha256`). `01_clone` and `containers/build.sh` refuse anything but a full 40-char SHA.
 
 ## 5. Install
 ```bash
 bash slurms/01_clone.sh
 bash slurms/02_envs.sh            # builds env kv; add --yaml-in with minimap2_216: 1 for the ALPINE fallback
 ```
-`02_envs` also does `pip install -e tools/CRISPRLungo`, which the tool needs.
+`02_envs` also does `pip install --no-deps -e tools/CRISPRLungo`, which the tool needs. `--no-deps` matters: without it pip pulls PyPI wheels over the conda-provided numpy, pandas and pysam, and a PyPI pysam on top of conda's htslib segfaults at import.
 
 **ALPINE without Docker** (`src/alpine_local.sh`): the upstream CWL runs `/opt/*.py` inside private images that were never published. The script copies the CWL, repoints those paths at `tools/ALPINE/DockerFile/*`, lowers `coresMin`/`ramMin`, strips `DockerRequirement`, points `PATCHER_MINIMAP2_PATH` at `tools/minimap2_216` if present (`minimap2_216: 1` in step 02), else at the minimap2 2.22 in `kv`, and runs `cwltool --no-container`.
 - The last step, `group_output`, can fail with "str object expected; got None". It only copies finished files, so the run counts as OK when the classification table exists.
@@ -111,16 +129,23 @@ From an earlier **subsampled** run (20,000 reads per sample, seed 42); supersede
 | CRISPResso2 `Cannot parse analysis window coordinate '-5'` | `-qwc` is the window *coordinates* flag; the window *center* is `-wc` |
 | CRISPResso2 killed for low memory | each worker holds full-length alignments of both 4–6 kb amplicons; `-p 2` locally |
 | CRISPResso2 runs for hours, or hangs while plotting | 64 cores / 240G / 48 h per sample, `--suppress_report --suppress_plots`, `timeout 47h` |
+| ALPINE reports far less knock-in than the other two | by design plus a bug. It needs the insert to reach `truncated_cutoff` (now `ki_min_insert_frac`, was 0.95 on nanopore) **and** both homology arms to align. The arm check runs `minimap2 -ax map-hifi` hardcoded in `DockerFile/classify/utils/data_utils.py`, ignoring `data_type: nanopore`, so true HDR reads fail it on ONT data. Not yet patched. |
+| Containerized `sbatch` job: "No such file or directory" on the script | SLURM runs a copy from its spool dir, which is not bind-mounted; `analysis_env.sh` copies it into `logs/` first. If you see this, your `KV_BIND` does not cover `$KV_ROOT`. |
+| Steps 06/07 finish instantly with empty results | you are running the **base** image, which has no CRISPRLungo or CRISPResso2. Build and run the full one. The steps now preflight the binary and exit 1. |
 
 ## 11. Using your own data
-1. Set your samples and control in `slurms/analysis_env.sh` (`SAMPLES`, `CONTROL`), and the SRA accessions in `slurms/03_fetch.sh`. For your own FASTQs, skip `03_fetch` and drop them in as `data/<label>.fastq.gz`.
+1. Submit the samples with `python3 src/gui_serve.py`, or write `configs/samples.tsv` by hand. The form also
+   sets `#SBATCH --array=1-N` in the four per-sample steps, which is the easiest thing to forget. For your own
+   FASTQs, put the absolute path in the `fastq_path` field (stored in `configs/samples/<sample_id>.json`);
+   `03_fetch` then length-filters that file instead of downloading an SRA run.
 2. In `src/build_refs.py`, set the genomic window, primers, HDR template, guide and `cut_offset_from_guide_5p` (SpCas9 17, AsCas12a 18).
 3. Match the nuclease elsewhere: CRISPRLungo `--cleavage_pos` = cut offset − 1; CRISPResso2 `-wc` = −(guide length − cut offset); CRISPRLungo `--window` must cover every intended mutation.
 4. Run `04_build_refs`, check `refs/design.json` (arm mismatches, insert length), then `05`–`07` and `08_summary`.
 
 ## 12. Which tool to use
 **ALPINE 8/10 · CRISPRLungo 7/10 · CRISPResso2 5/10**, for ONT knock-in amplicons.
-- **ALPINE:** the strictest precise-HDR fraction, with partial integrations reported separately. About 1 min and 0.4 GB per sample. Costs a CWL workaround, since the images are private.
+- **ALPINE:** the strictest precise-HDR fraction, with partial integrations reported separately. Treat its
+  absolute numbers with care until the `map-hifi` arm-check bug above is patched. About 1 min and 0.4 GB per sample. Costs a CWL workaround, since the images are private.
 - **CRISPRLungo:** the full outcome spectrum with control filtering and donor matching. About 1 min and 0.6 GB per sample. Easiest to install.
 - **CRISPResso2:** solid on short amplicons (≤ 1 kb) and the usual cross-check against Illumina pipelines, but slow and memory-hungry at 4–6 kb. Its own maintainers point long-read users at CRISPRLungo.
 - **Default:** run ALPINE and CRISPRLungo together, with a mock control.

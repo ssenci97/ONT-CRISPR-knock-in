@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KNOCKIN-VAL console</title>
+<link rel="stylesheet" href="submit.css">
+</head>
+<body>
+<header>
+  <h1>KNOCKIN-VAL</h1>
+  <nav><button type="button" data-tab="samples" class="on">1. Samples</button><button type="button" data-tab="run">2. Run</button><button type="button" data-tab="results">3. Results</button></nav>
+  <p id="runtime" class="runtime">checking runtime…</p>
+</header>
+
+<main>
+  <section id="tab-samples">
+    <p class="lede">One card per sample. Saving writes <code>configs/samples.tsv</code> and one
+    <code>configs/samples/&lt;sample_id&gt;.json</code>, and sets the SLURM array size for every per-sample step.</p>
+    <div id="samples"></div>
+    <div class="bar">
+      <button id="add" type="button">Add sample</button>
+      <button id="reload" type="button" class="ghost">Reload from disk</button>
+      <button id="submit" type="button" class="primary">Save samples</button>
+    </div>
+    <pre id="status" hidden></pre>
+  </section>
+
+  <section id="tab-run" hidden>
+    <p class="lede">The default run uses the sample sheet and the parameters already in
+    <code>configs/param_configs.yaml</code>. Nothing else to choose.</p>
+    <div class="bar">
+      <button id="run-sbatch" type="button" class="primary">Run default pipeline (SLURM)</button>
+      <button id="run-local" type="button">Run here, no scheduler</button>
+      <button id="stop" type="button" class="ghost danger">Stop</button>
+      <label class="auto"><input type="checkbox" id="auto" checked> auto-refresh</label>
+    </div>
+    <div id="run-state" class="panel"></div>
+    <h3>Steps</h3>
+    <table id="steps"><thead><tr><th>step</th><th>logs</th><th>finished</th><th>last log</th><th>updated</th></tr></thead><tbody></tbody></table>
+    <h3>Queue</h3>
+    <pre id="squeue" class="small">—</pre>
+    <h3>run_all.sh output</h3>
+    <pre id="runlog" class="small">—</pre>
+  </section>
+
+  <section id="tab-results" hidden>
+    <div class="bar"><button id="refresh-results" type="button">Refresh</button></div>
+    <h3>Knock-in % per tool and sample</h3>
+    <div id="matrix" class="panel">not available yet</div>
+    <h3>Per sample</h3>
+    <div id="meta"></div>
+  </section>
+</main>
+
+<template id="card">
+  <section class="card">
+    <div class="card-head">
+      <span class="title">New sample</span>
+      <span class="actions"><button type="button" data-act="dup" class="ghost">Duplicate</button><button type="button" data-act="del" class="ghost danger">Remove</button></span>
+    </div>
+    <div class="groups"></div>
+  </section>
+</template>
+<script src="submit.js"></script>
+</body>
+</html>

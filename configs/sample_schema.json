@@ -1,0 +1,43 @@
+{
+  "title": "KNOCKIN-VAL sample submission",
+  "sheet_columns": ["sample_id", "srr", "condition", "control"],
+  "groups": [
+    {
+      "name": "Sample sheet",
+      "help": "These four fields become one row of configs/samples.tsv and drive every step.",
+      "fields": [
+        {"id": "sample_id", "label": "Sample ID", "type": "text", "required": true, "pattern": "^[A-Za-z0-9_]+$", "help": "Short name, letters/digits/underscore only. Used for file names, e.g. dsDNA_r1."},
+        {"id": "srr", "label": "SRA run accession", "type": "text", "pattern": "^(SRR|ERR|DRR)[0-9]+$", "help": "Leave empty if you provide your own FASTQ instead."},
+        {"id": "condition", "label": "Condition", "type": "text", "required": true, "help": "What was done to the cells, e.g. rnp_dsDNA_donor."},
+        {"id": "control", "label": "Negative control", "type": "checkbox", "help": "Tick for mock / untreated samples. CRISPRLungo uses the first ticked sample as its control."}
+      ]
+    },
+    {
+      "name": "Sequencing",
+      "help": "Recorded in configs/samples/<sample_id>.json. Not used by the tools, kept for provenance.",
+      "fields": [
+        {"id": "fastq_path", "label": "Local FASTQ (if no SRA run)", "type": "text", "help": "Absolute path to a gzipped FASTQ. Copied to data/<sample_id>.fastq.gz by step 03."},
+        {"id": "platform", "label": "Platform", "type": "select", "options": ["ONT", "PacBio HiFi"], "default": "ONT"},
+        {"id": "flowcell", "label": "Flow cell", "type": "text", "help": "e.g. FLO-MIN114 / R10.4.1"},
+        {"id": "basecaller", "label": "Basecaller model", "type": "text", "help": "e.g. dorado sup v5.0.0"}
+      ]
+    },
+    {
+      "name": "Wet lab",
+      "help": "Recorded in configs/samples/<sample_id>.json.",
+      "fields": [
+        {"id": "operator", "label": "Operator", "type": "text"},
+        {"id": "experiment_date", "label": "Experiment date", "type": "date"},
+        {"id": "cell_type", "label": "Cell type", "type": "text", "help": "e.g. primary human T cells, donor 3"},
+        {"id": "target_locus", "label": "Target locus", "type": "text", "default": "TRAC"},
+        {"id": "nuclease", "label": "Nuclease", "type": "select", "options": ["AsCas12a", "SpCas9", "other"], "default": "AsCas12a"},
+        {"id": "guide_name", "label": "Guide name", "type": "text"},
+        {"id": "donor_format", "label": "Donor format", "type": "select", "options": ["none", "dsDNA", "ssDNA", "ssCTS", "AAV6", "other"], "default": "none"},
+        {"id": "donor_amount_ug", "label": "Donor amount (ug)", "type": "number", "step": "0.01"},
+        {"id": "rnp_pmol", "label": "RNP (pmol)", "type": "number", "step": "0.1"},
+        {"id": "electroporation_program", "label": "Electroporation program", "type": "text"},
+        {"id": "notes", "label": "Notes", "type": "textarea"}
+      ]
+    }
+  ]
+}

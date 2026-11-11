@@ -1,0 +1,28 @@
+digraph containers {
+  graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
+         label="Two images, because one of the three tools may not be redistributed"];
+  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
+  edge [color="#6b6862", arrowsize=0.7];
+
+  subgraph cluster_pub {
+    label="publishable: MIT and open-source only"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
+    basefile [label="containers/Dockerfile.base", fillcolor="#fdf2e3"];
+    base [label="ont-knockin-val-base\nconda env (the 15 min solve)\ncwltool, minimap2 2.16\nALPINE (MIT)", fillcolor="#e8f1ee"];
+    ghcr [label="ghcr.io/<owner>/ont-knockin-val-base:<tag>", fillcolor="#e8f1ee"];
+    sif [label="containers/ont-knockin-val.sif\n(apptainer pull on Orfeo)", fillcolor="#e8f1ee"];
+  }
+  subgraph cluster_local {
+    label="local only, never pushed"; fontname="Helvetica"; fontsize=10; color="#9b2c2c"; style=dashed;
+    fullfile [label="containers/Dockerfile", fillcolor="#fdf2e3"];
+    full [label="knockin-val\n+ CRISPRLungo (AGPL, academic)\n+ CRISPResso2 (MGH EULA:\nmay not be distributed)", fillcolor="#f7e9e9"];
+  }
+
+  basefile -> base [label="podman build", fontsize=9, fontname="Helvetica"];
+  base -> ghcr [label="podman push", fontsize=9, fontname="Helvetica"];
+  ghcr -> sif [label="apptainer pull", fontsize=9, fontname="Helvetica"];
+  base -> full [label="FROM", fontsize=9, fontname="Helvetica"];
+  fullfile -> full [label="podman build", fontsize=9, fontname="Helvetica"];
+
+  run [label="any step script\nKV_SIF=... sbatch slurms/06_lungo.sh", fillcolor="#f2eff9"];
+  sif -> run; full -> run [label="KV_IMAGE=...", fontsize=9, fontname="Helvetica"];
+}

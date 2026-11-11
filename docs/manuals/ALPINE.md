@@ -47,6 +47,31 @@ Earlier subsampled run (20,000 reads per sample, seed 42); the pipeline now uses
 
 About 1 min and 0.38 GB per sample. One exception: ssCTS_r1 took 60 min, with every step completing and no cause identified.
 
+Full-data run of 2026-11-09 (all length-passing reads, jobs 1926993/1926996), **KI %**:
+Mock 0.0 · NoDonor 0.0 · dsDNA 1.31 · ssDNA 0.0 · ssCTS 0.35 — against CRISPRLungo 4.23/0.85/7.12 and
+CRISPResso2 4.62/1.28/7.86 on the same reads. Why ALPINE is so much lower is answered below.
+
+## Why ALPINE under-reports knock-in on ONT reads
+
+Two gates, one deliberate and one a bug, verified by reading `b59121d`:
+
+1. **Insert-length gate.** `merge_aav_tag` (`classify_read.py:583`) keeps the `HDR-` tag only if
+   `truncated_hdr_cutoff * full_insert_length <= observed_insert`, otherwise it rewrites it to
+   `Non-HDR-without-ITR-`. `full_hdr_cutoff` defaults to **0.95 for nanopore** (`classify_read.py:918`;
+   the CWL doc says 0.99). CRISPRLungo was set to 0.80 and CRISPResso2 has no length gate at all, so the
+   three columns were not answering the same question. The wrapper now passes `truncated_cutoff` from the
+   shared `ki_min_insert_frac` (0.80), which makes them comparable.
+2. **Homology-arm gate, with the wrong preset.** `verify_update_hdr_tag` keeps the tag only for reads that
+   align to **both** arms over `ha_match_ratio` of each arm's length. That alignment is
+   `minimap2 -ax map-hifi`, **hardcoded** in `utils/data_utils.py:89`, regardless of `data_type`. On ONT
+   reads the HiFi preset yields shorter, sparser alignments, so genuine HDR reads miss the threshold and
+   are downgraded. `alpine_data_type: nanopore` never reaches this call. Not patched here — patching it
+   means editing the cloned tool, which would break the pinned-commit guarantee. The fix upstream is one
+   word; `ha_match_ratio` can be lowered as a workaround, at the cost of specificity.
+
+`find_true_hdr_reads` additionally skips reads carrying an `SA` tag, so a chimeric alignment to a homology
+arm also costs the HDR call.
+
 **Reading the numbers**
 - **HDR-CD19 is strict**: both junctions must match the template arms within `HA_Seq_match_ratio`, so it counts precise knock-ins only.
 - **Non-HDR-without-ITR-CD19** is CAR sequence without precise junctions, meaning partial or imperfect integration. Its 1.1 % in NoDonor is the false-positive floor of that class on ONT reads.

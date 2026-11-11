@@ -1,0 +1,10 @@
+.git/
+tools/
+data/
+refs/
+results/
+logs/
+gui/
+docs/
+containers/*.sif
+__pycache__/

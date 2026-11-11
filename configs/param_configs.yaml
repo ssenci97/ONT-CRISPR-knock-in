@@ -1,3 +1,5 @@
+shared:
+  ki_min_insert_frac: 0.8
 01_clone:
   tools_tsv: configs/tools.tsv
 02_envs:
@@ -36,5 +38,4 @@ alpine_local:
   crispresso_min_bq: 20
   crispresso_timeout: 47h
 08_summary: {}
-summarize:
-  lungo_min_insert_frac: 0.8
+summarize: {}
