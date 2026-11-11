@@ -13,124 +13,124 @@
 <!-- schema -->
 <g id="node1" class="node">
 <title>schema</title>
-<path fill="#fdf2e3" stroke="#c9c4bb" stroke-width="1.1" d="M291.5,-541C291.5,-541 158.5,-541 158.5,-541 152.5,-541 146.5,-535 146.5,-529 146.5,-529 146.5,-517 146.5,-517 146.5,-511 152.5,-505 158.5,-505 158.5,-505 291.5,-505 291.5,-505 297.5,-505 303.5,-511 303.5,-517 303.5,-517 303.5,-529 303.5,-529 303.5,-535 297.5,-541 291.5,-541"/>
-<text text-anchor="middle" x="225" y="-526" font-family="Helvetica,sans-Serif" font-size="10.00">configs/sample_schema.json</text>
-<text text-anchor="middle" x="225" y="-515" font-family="Helvetica,sans-Serif" font-size="10.00">(field definitions)</text>
+<path fill="#fdf2e3" stroke="#c9c4bb" stroke-width="1.1" d="M291.25,-541C291.25,-541 158.25,-541 158.25,-541 152.25,-541 146.25,-535 146.25,-529 146.25,-529 146.25,-517 146.25,-517 146.25,-511 152.25,-505 158.25,-505 158.25,-505 291.25,-505 291.25,-505 297.25,-505 303.25,-511 303.25,-517 303.25,-517 303.25,-529 303.25,-529 303.25,-535 297.25,-541 291.25,-541"/>
+<text text-anchor="middle" x="224.75" y="-526" font-family="Helvetica,sans-Serif" font-size="10.00">configs/sample_schema.json</text>
+<text text-anchor="middle" x="224.75" y="-515" font-family="Helvetica,sans-Serif" font-size="10.00">(field definitions)</text>
 </g>
 <!-- form -->
 <g id="node2" class="node">
 <title>form</title>
-<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M289.5,-459C289.5,-459 160.5,-459 160.5,-459 154.5,-459 148.5,-453 148.5,-447 148.5,-447 148.5,-435 148.5,-435 148.5,-429 154.5,-423 160.5,-423 160.5,-423 289.5,-423 289.5,-423 295.5,-423 301.5,-429 301.5,-435 301.5,-435 301.5,-447 301.5,-447 301.5,-453 295.5,-459 289.5,-459"/>
-<text text-anchor="middle" x="225" y="-444" font-family="Helvetica,sans-Serif" font-size="10.00">gui/submit.html + submit.js</text>
-<text text-anchor="middle" x="225" y="-433" font-family="Helvetica,sans-Serif" font-size="10.00">(form, no logic about files)</text>
+<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M289.25,-459C289.25,-459 160.25,-459 160.25,-459 154.25,-459 148.25,-453 148.25,-447 148.25,-447 148.25,-435 148.25,-435 148.25,-429 154.25,-423 160.25,-423 160.25,-423 289.25,-423 289.25,-423 295.25,-423 301.25,-429 301.25,-435 301.25,-435 301.25,-447 301.25,-447 301.25,-453 295.25,-459 289.25,-459"/>
+<text text-anchor="middle" x="224.75" y="-444" font-family="Helvetica,sans-Serif" font-size="10.00">gui/submit.html + submit.js</text>
+<text text-anchor="middle" x="224.75" y="-433" font-family="Helvetica,sans-Serif" font-size="10.00">(form, no logic about files)</text>
 </g>
 <!-- schema&#45;&gt;form -->
 <g id="edge1" class="edge">
 <title>schema&#45;&gt;form</title>
-<path fill="none" stroke="#6b6862" d="M225,-504.64C225,-493.45 225,-478.74 225,-466.39"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="227.45,-466.05 225,-459.05 222.55,-466.05 227.45,-466.05"/>
-<text text-anchor="middle" x="263" y="-479.8" font-family="Helvetica,sans-Serif" font-size="9.00">GET /api/schema</text>
+<path fill="none" stroke="#6b6862" d="M224.75,-504.64C224.75,-493.45 224.75,-478.74 224.75,-466.39"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="227.2,-466.05 224.75,-459.05 222.3,-466.05 227.2,-466.05"/>
+<text text-anchor="middle" x="262.75" y="-479.8" font-family="Helvetica,sans-Serif" font-size="9.00">GET /api/schema</text>
 </g>
 <!-- serve -->
 <g id="node3" class="node">
 <title>serve</title>
-<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M265.5,-377C265.5,-377 184.5,-377 184.5,-377 178.5,-377 172.5,-371 172.5,-365 172.5,-365 172.5,-353 172.5,-353 172.5,-347 178.5,-341 184.5,-341 184.5,-341 265.5,-341 265.5,-341 271.5,-341 277.5,-347 277.5,-353 277.5,-353 277.5,-365 277.5,-365 277.5,-371 271.5,-377 265.5,-377"/>
-<text text-anchor="middle" x="225" y="-362" font-family="Helvetica,sans-Serif" font-size="10.00">src/gui_serve.py</text>
-<text text-anchor="middle" x="225" y="-351" font-family="Helvetica,sans-Serif" font-size="10.00">(validates, writes)</text>
+<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M265.25,-377C265.25,-377 184.25,-377 184.25,-377 178.25,-377 172.25,-371 172.25,-365 172.25,-365 172.25,-353 172.25,-353 172.25,-347 178.25,-341 184.25,-341 184.25,-341 265.25,-341 265.25,-341 271.25,-341 277.25,-347 277.25,-353 277.25,-353 277.25,-365 277.25,-365 277.25,-371 271.25,-377 265.25,-377"/>
+<text text-anchor="middle" x="224.75" y="-362" font-family="Helvetica,sans-Serif" font-size="10.00">src/gui_serve.py</text>
+<text text-anchor="middle" x="224.75" y="-351" font-family="Helvetica,sans-Serif" font-size="10.00">(validates, writes)</text>
 </g>
 <!-- form&#45;&gt;serve -->
 <g id="edge2" class="edge">
 <title>form&#45;&gt;serve</title>
-<path fill="none" stroke="#6b6862" d="M225,-422.64C225,-411.45 225,-396.74 225,-384.39"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="227.45,-384.05 225,-377.05 222.55,-384.05 227.45,-384.05"/>
-<text text-anchor="middle" x="266.5" y="-397.8" font-family="Helvetica,sans-Serif" font-size="9.00">POST /api/samples</text>
+<path fill="none" stroke="#6b6862" d="M224.75,-422.64C224.75,-411.45 224.75,-396.74 224.75,-384.39"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="227.2,-384.05 224.75,-377.05 222.3,-384.05 227.2,-384.05"/>
+<text text-anchor="middle" x="266.25" y="-397.8" font-family="Helvetica,sans-Serif" font-size="9.00">POST /api/samples</text>
 </g>
 <!-- sheet -->
 <g id="node4" class="node">
 <title>sheet</title>
-<path fill="#e8f1ee" stroke="#c9c4bb" stroke-width="1.1" d="M180,-295C180,-295 56,-295 56,-295 50,-295 44,-289 44,-283 44,-283 44,-271 44,-271 44,-265 50,-259 56,-259 56,-259 180,-259 180,-259 186,-259 192,-265 192,-271 192,-271 192,-283 192,-283 192,-289 186,-295 180,-295"/>
-<text text-anchor="middle" x="118" y="-280" font-family="Helvetica,sans-Serif" font-size="10.00">configs/samples.tsv</text>
-<text text-anchor="middle" x="118" y="-269" font-family="Helvetica,sans-Serif" font-size="10.00">(what the pipeline runs on)</text>
+<path fill="#e8f1ee" stroke="#c9c4bb" stroke-width="1.1" d="M182.75,-295C182.75,-295 58.75,-295 58.75,-295 52.75,-295 46.75,-289 46.75,-283 46.75,-283 46.75,-271 46.75,-271 46.75,-265 52.75,-259 58.75,-259 58.75,-259 182.75,-259 182.75,-259 188.75,-259 194.75,-265 194.75,-271 194.75,-271 194.75,-283 194.75,-283 194.75,-289 188.75,-295 182.75,-295"/>
+<text text-anchor="middle" x="120.75" y="-280" font-family="Helvetica,sans-Serif" font-size="10.00">configs/samples.tsv</text>
+<text text-anchor="middle" x="120.75" y="-269" font-family="Helvetica,sans-Serif" font-size="10.00">(what the pipeline runs on)</text>
 </g>
 <!-- serve&#45;&gt;sheet -->
 <g id="edge3" class="edge">
 <title>serve&#45;&gt;sheet</title>
-<path fill="none" stroke="#6b6862" d="M202.05,-340.84C185.83,-328.71 163.97,-312.37 146.62,-299.39"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="147.99,-297.36 140.92,-295.13 145.06,-301.29 147.99,-297.36"/>
+<path fill="none" stroke="#6b6862" d="M202.44,-340.84C186.81,-328.82 165.8,-312.66 149,-299.73"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="150.07,-297.46 143.02,-295.13 147.08,-301.34 150.07,-297.46"/>
 </g>
 <!-- sjson -->
 <g id="node5" class="node">
 <title>sjson</title>
-<path fill="#e8f1ee" stroke="#c9c4bb" stroke-width="1.1" d="M313,-241C313,-241 149,-241 149,-241 143,-241 137,-235 137,-229 137,-229 137,-217 137,-217 137,-211 143,-205 149,-205 149,-205 313,-205 313,-205 319,-205 325,-211 325,-217 325,-217 325,-229 325,-229 325,-235 319,-241 313,-241"/>
-<text text-anchor="middle" x="231" y="-226" font-family="Helvetica,sans-Serif" font-size="10.00">configs/samples/&lt;sample_id&gt;.json</text>
-<text text-anchor="middle" x="231" y="-215" font-family="Helvetica,sans-Serif" font-size="10.00">(what the wet lab submitted)</text>
+<path fill="#e8f1ee" stroke="#c9c4bb" stroke-width="1.1" d="M315.75,-241C315.75,-241 151.75,-241 151.75,-241 145.75,-241 139.75,-235 139.75,-229 139.75,-229 139.75,-217 139.75,-217 139.75,-211 145.75,-205 151.75,-205 151.75,-205 315.75,-205 315.75,-205 321.75,-205 327.75,-211 327.75,-217 327.75,-217 327.75,-229 327.75,-229 327.75,-235 321.75,-241 315.75,-241"/>
+<text text-anchor="middle" x="233.75" y="-226" font-family="Helvetica,sans-Serif" font-size="10.00">configs/samples/&lt;sample_id&gt;.json</text>
+<text text-anchor="middle" x="233.75" y="-215" font-family="Helvetica,sans-Serif" font-size="10.00">(what the wet lab submitted)</text>
 </g>
 <!-- serve&#45;&gt;sjson -->
 <g id="edge4" class="edge">
 <title>serve&#45;&gt;sjson</title>
-<path fill="none" stroke="#6b6862" d="M225.77,-340.76C226.83,-317.24 228.72,-274.98 229.91,-248.27"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="232.37,-248.28 230.23,-241.18 227.47,-248.06 232.37,-248.28"/>
+<path fill="none" stroke="#6b6862" d="M225.91,-340.76C227.49,-317.24 230.33,-274.98 232.12,-248.27"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="234.57,-248.33 232.6,-241.18 229.68,-248 234.57,-248.33"/>
 </g>
 <!-- arrays -->
 <g id="node6" class="node">
 <title>arrays</title>
-<path fill="#f6f5f2" stroke="#c9c4bb" stroke-width="1.1" d="M369,-295C369,-295 265,-295 265,-295 259,-295 253,-289 253,-283 253,-283 253,-271 253,-271 253,-265 259,-259 265,-259 265,-259 369,-259 369,-259 375,-259 381,-265 381,-271 381,-271 381,-283 381,-283 381,-289 375,-295 369,-295"/>
-<text text-anchor="middle" x="317" y="-280" font-family="Helvetica,sans-Serif" font-size="10.00">slurms/0{3,5,6,7}_*.sh</text>
-<text text-anchor="middle" x="317" y="-269" font-family="Helvetica,sans-Serif" font-size="10.00">#SBATCH &#45;&#45;array=1&#45;N</text>
+<path fill="#f6f5f2" stroke="#c9c4bb" stroke-width="1.1" d="M366.25,-295C366.25,-295 265.25,-295 265.25,-295 259.25,-295 253.25,-289 253.25,-283 253.25,-283 253.25,-271 253.25,-271 253.25,-265 259.25,-259 265.25,-259 265.25,-259 366.25,-259 366.25,-259 372.25,-259 378.25,-265 378.25,-271 378.25,-271 378.25,-283 378.25,-283 378.25,-289 372.25,-295 366.25,-295"/>
+<text text-anchor="middle" x="315.75" y="-280" font-family="Helvetica,sans-Serif" font-size="10.00">slurms/0{3,5,6}_*.sh</text>
+<text text-anchor="middle" x="315.75" y="-269" font-family="Helvetica,sans-Serif" font-size="10.00">#SBATCH &#45;&#45;array=1&#45;N</text>
 </g>
 <!-- serve&#45;&gt;arrays -->
 <g id="edge5" class="edge">
 <title>serve&#45;&gt;arrays</title>
-<path fill="none" stroke="#6b6862" d="M244.96,-340.64C258.68,-328.71 277,-312.78 291.73,-299.97"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="293.72,-301.49 297.39,-295.05 290.5,-297.79 293.72,-301.49"/>
-<text text-anchor="middle" x="308" y="-315.8" font-family="Helvetica,sans-Serif" font-size="9.00">sets array size</text>
+<path fill="none" stroke="#6b6862" d="M244.5,-340.64C258.06,-328.71 276.19,-312.78 290.76,-299.97"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="292.72,-301.51 296.36,-295.05 289.48,-297.83 292.72,-301.51"/>
+<text text-anchor="middle" x="307.75" y="-315.8" font-family="Helvetica,sans-Serif" font-size="9.00">sets array size</text>
 </g>
 <!-- steps -->
 <g id="node7" class="node">
 <title>steps</title>
-<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M190,-187C190,-187 14,-187 14,-187 8,-187 2,-181 2,-175 2,-175 2,-163 2,-163 2,-157 8,-151 14,-151 14,-151 190,-151 190,-151 196,-151 202,-157 202,-163 202,-163 202,-175 202,-175 202,-181 196,-187 190,-187"/>
-<text text-anchor="middle" x="102" y="-172" font-family="Helvetica,sans-Serif" font-size="10.00">pipeline steps</text>
-<text text-anchor="middle" x="102" y="-161" font-family="Helvetica,sans-Serif" font-size="10.00">(kv_meta &lt;sample_id&gt; &lt;step&gt; k=v)</text>
+<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M192.75,-187C192.75,-187 16.75,-187 16.75,-187 10.75,-187 4.75,-181 4.75,-175 4.75,-175 4.75,-163 4.75,-163 4.75,-157 10.75,-151 16.75,-151 16.75,-151 192.75,-151 192.75,-151 198.75,-151 204.75,-157 204.75,-163 204.75,-163 204.75,-175 204.75,-175 204.75,-181 198.75,-187 192.75,-187"/>
+<text text-anchor="middle" x="104.75" y="-172" font-family="Helvetica,sans-Serif" font-size="10.00">pipeline steps</text>
+<text text-anchor="middle" x="104.75" y="-161" font-family="Helvetica,sans-Serif" font-size="10.00">(kv_meta &lt;sample_id&gt; &lt;step&gt; k=v)</text>
 </g>
 <!-- sheet&#45;&gt;steps -->
 <g id="edge6" class="edge">
 <title>sheet&#45;&gt;steps</title>
-<path fill="none" stroke="#6b6862" d="M115.43,-258.97C112.8,-241.53 108.68,-214.26 105.7,-194.51"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="108.08,-193.9 104.62,-187.34 103.24,-194.63 108.08,-193.9"/>
+<path fill="none" stroke="#6b6862" d="M118.18,-258.97C115.55,-241.53 111.43,-214.26 108.45,-194.51"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="110.83,-193.9 107.37,-187.34 105.99,-194.63 110.83,-193.9"/>
 </g>
 <!-- writer -->
 <g id="node8" class="node">
 <title>writer</title>
-<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M216,-114C216,-114 124,-114 124,-114 118,-114 112,-108 112,-102 112,-102 112,-90 112,-90 112,-84 118,-78 124,-78 124,-78 216,-78 216,-78 222,-78 228,-84 228,-90 228,-90 228,-102 228,-102 228,-108 222,-114 216,-114"/>
-<text text-anchor="middle" x="170" y="-99" font-family="Helvetica,sans-Serif" font-size="10.00">src/sample_meta.py</text>
-<text text-anchor="middle" x="170" y="-88" font-family="Helvetica,sans-Serif" font-size="10.00">(single writer)</text>
+<path fill="#f2eff9" stroke="#c9c4bb" stroke-width="1.1" d="M218.75,-114C218.75,-114 126.75,-114 126.75,-114 120.75,-114 114.75,-108 114.75,-102 114.75,-102 114.75,-90 114.75,-90 114.75,-84 120.75,-78 126.75,-78 126.75,-78 218.75,-78 218.75,-78 224.75,-78 230.75,-84 230.75,-90 230.75,-90 230.75,-102 230.75,-102 230.75,-108 224.75,-114 218.75,-114"/>
+<text text-anchor="middle" x="172.75" y="-99" font-family="Helvetica,sans-Serif" font-size="10.00">src/sample_meta.py</text>
+<text text-anchor="middle" x="172.75" y="-88" font-family="Helvetica,sans-Serif" font-size="10.00">(single writer)</text>
 </g>
 <!-- sjson&#45;&gt;writer -->
 <g id="edge7" class="edge">
 <title>sjson&#45;&gt;writer</title>
-<path fill="none" stroke="#6b6862" d="M228.08,-204.99C225.1,-190.19 219.68,-168.42 211,-151 205.53,-140.01 197.7,-129 190.35,-119.82"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="192.2,-118.21 185.87,-114.36 188.42,-121.33 192.2,-118.21"/>
-<text text-anchor="middle" x="245" y="-166.8" font-family="Helvetica,sans-Serif" font-size="9.00">copied in</text>
+<path fill="none" stroke="#6b6862" d="M230.83,-204.99C227.85,-190.19 222.43,-168.42 213.75,-151 208.28,-140.01 200.45,-129 193.1,-119.82"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="194.95,-118.21 188.62,-114.36 191.17,-121.33 194.95,-118.21"/>
+<text text-anchor="middle" x="247.75" y="-166.8" font-family="Helvetica,sans-Serif" font-size="9.00">copied in</text>
 </g>
 <!-- steps&#45;&gt;writer -->
 <g id="edge8" class="edge">
 <title>steps&#45;&gt;writer</title>
-<path fill="none" stroke="#6b6862" d="M118.46,-150.81C127.57,-141.31 138.98,-129.39 148.75,-119.19"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="150.62,-120.78 153.69,-114.03 147.08,-117.39 150.62,-120.78"/>
+<path fill="none" stroke="#6b6862" d="M121.21,-150.81C130.32,-141.31 141.73,-129.39 151.5,-119.19"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="153.37,-120.78 156.44,-114.03 149.83,-117.39 153.37,-120.78"/>
 </g>
 <!-- rjson -->
 <g id="node9" class="node">
 <title>rjson</title>
-<path fill="#1f6f5c" stroke="#c9c4bb" stroke-width="0" d="M243.5,-41C243.5,-41 96.5,-41 96.5,-41 90.5,-41 84.5,-35 84.5,-29 84.5,-29 84.5,-12 84.5,-12 84.5,-6 90.5,0 96.5,0 96.5,0 243.5,0 243.5,0 249.5,0 255.5,-6 255.5,-12 255.5,-12 255.5,-29 255.5,-29 255.5,-35 249.5,-41 243.5,-41"/>
-<text text-anchor="middle" x="170" y="-29" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">results/meta/&lt;sample_id&gt;.json</text>
-<text text-anchor="middle" x="170" y="-18" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">submitted + per&#45;step params,</text>
-<text text-anchor="middle" x="170" y="-7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">read counts, job ids, commit</text>
+<path fill="#1f6f5c" stroke="#c9c4bb" stroke-width="0" d="M246.25,-41C246.25,-41 99.25,-41 99.25,-41 93.25,-41 87.25,-35 87.25,-29 87.25,-29 87.25,-12 87.25,-12 87.25,-6 93.25,0 99.25,0 99.25,0 246.25,0 246.25,0 252.25,0 258.25,-6 258.25,-12 258.25,-12 258.25,-29 258.25,-29 258.25,-35 252.25,-41 246.25,-41"/>
+<text text-anchor="middle" x="172.75" y="-29" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">results/meta/&lt;sample_id&gt;.json</text>
+<text text-anchor="middle" x="172.75" y="-18" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">submitted + per&#45;step params,</text>
+<text text-anchor="middle" x="172.75" y="-7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">read counts, job ids, commit</text>
 </g>
 <!-- writer&#45;&gt;rjson -->
 <g id="edge9" class="edge">
 <title>writer&#45;&gt;rjson</title>
-<path fill="none" stroke="#6b6862" d="M170,-77.95C170,-69.08 170,-58.03 170,-48.07"/>
-<polygon fill="#6b6862" stroke="#6b6862" points="172.45,-48.05 170,-41.05 167.55,-48.05 172.45,-48.05"/>
+<path fill="none" stroke="#6b6862" d="M172.75,-77.95C172.75,-69.08 172.75,-58.03 172.75,-48.07"/>
+<polygon fill="#6b6862" stroke="#6b6862" points="175.2,-48.05 172.75,-41.05 170.3,-48.05 175.2,-48.05"/>
 </g>
 </g>
 </svg>

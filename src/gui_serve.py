@@ -21,7 +21,10 @@ ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
 ###################################### helpers
 def log(m): print(f"[PYTHON-INFO] {m}", flush=True)
 def yaml_io(p, a):
-    import yaml
+    try: import yaml
+    except ImportError:
+        log(f"!! PyYAML not installed: using built-in defaults, {PARAM_YAML} ignored")
+        return p
     c = (yaml.safe_load(open(PARAM_YAML)) if os.path.exists(PARAM_YAML) else None) or {}
     if a.yaml_in: p.update(c.get(NAME, {})); log(f"params read from {PARAM_YAML} [{NAME}]")
     if a.yaml_out: c[NAME] = p; yaml.safe_dump(c, open(PARAM_YAML, "w"), sort_keys=False); log(f"params written to {PARAM_YAML} [{NAME}]")

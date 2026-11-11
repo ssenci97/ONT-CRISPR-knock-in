@@ -58,7 +58,7 @@ Two gates, one deliberate and one a bug, verified by reading `b59121d`:
 
 1. **Insert-length gate.** `merge_aav_tag` (`classify_read.py:583`) keeps the `HDR-` tag only if
    `truncated_hdr_cutoff * full_insert_length <= observed_insert`, otherwise it rewrites it to
-   `Non-HDR-without-ITR-`. `full_hdr_cutoff` defaults to **0.95 for nanopore** (`classify_read.py:918`;
+   `Non-HDR-without-ITR-`. `full_hdr_cutoff` defaults to **0.95 for nanopore** (assigned at `classify_read.py:921`;
    the CWL doc says 0.99), while CRISPRLungo was set to 0.80, so the columns were not answering the same
    question. The wrapper now passes `truncated_cutoff` from the
    shared `ki_min_insert_frac` (0.80), which makes them comparable.

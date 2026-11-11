@@ -31,9 +31,10 @@ established that CRISPRLungo's numbers were sound. That cross-check is no longer
 second opinion, with the caveat in [`docs/manuals/ALPINE.md`](docs/manuals/ALPINE.md) that it under-reports
 on ONT data.
 
-What it bought: the pipeline is ~86% faster (step 07 was 1h05m–2h38m per sample at up to 34 GB RSS, against
-~11 min and 5 GB for CRISPRLungo), the SLURM request drops from 240 GB to 32 GB, and the image is a single
-public artifact with no licence conditions beyond AGPL source availability.
+What it bought: the pipeline is ~86% faster (its step, then `07_crispresso`, took 1h05m-2h38m per sample at
+up to 34 GB RSS, against ~11 min and 5 GB for CRISPRLungo), the largest SLURM request drops from
+64 CPU / 240 GB to 32 CPU / 128 GB, and the image is a single public artifact with no licence conditions
+beyond AGPL source availability.
 
 Anyone who wants the CRISPResso2 comparison back should install it themselves from bioconda, under their
 own acceptance of the MGH EULA, and run it outside this pipeline.

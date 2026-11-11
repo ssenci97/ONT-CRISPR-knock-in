@@ -1,6 +1,6 @@
 digraph inputs {
   graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="The per-sample input contract: the same six files, handed to each tool under its own flag"];
+         label="The per-sample input contract: the same inputs, handed to each tool under its own flag"];
   node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
   edge [color="#6b6862", arrowsize=0.7];
 

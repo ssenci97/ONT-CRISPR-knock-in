@@ -26,9 +26,10 @@ def yaml_io(p, a):
 
 ###################################### tool metrics
 def alpine(sample_id, d, p):
-    hits = [h for h in glob.glob(f"{RES}/ALPINE/{sample_id}/**/{sample_id}_read_classification.txt", recursive=True) if "/cwl_local/" not in h]
+    hits = sorted(h for h in glob.glob(f"{RES}/ALPINE/{sample_id}/**/{sample_id}_read_classification.txt", recursive=True) if "/cwl_local/" not in h)
     if not hits: return None
-    rows = list(csv.reader(open(hits[0]), delimiter="\t")); cnt = {}
+    if len(hits) > 1: log(f"!! {sample_id}: {len(hits)} ALPINE classification files, using {hits[-1]}")
+    rows = list(csv.reader(open(hits[-1]), delimiter="\t")); cnt = {}
     for k, v in zip(rows[0], rows[-1]):
         try: cnt[k] = int(float(v))
         except ValueError: pass
@@ -36,16 +37,29 @@ def alpine(sample_id, d, p):
     return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"ALPINE HDR class (transgene >={p['ki_min_insert_frac']:.0%} of insert, both homology arms validated) / classified reads",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])[:5] if v))
 
+def union_len(spans):
+    merged = []
+    for a, b in sorted(spans):
+        if merged and a <= merged[-1][1] + 1: merged[-1][1] = max(merged[-1][1], b)
+        else: merged.append([a, b])
+    return sum(b - a + 1 for a, b in merged)
+
 def lungo(sample_id, d, p):
     f = f"{RES}/CRISPRLungo/{sample_id}/results/read_classification.txt"
     if not os.path.exists(f): return None
-    reads, cls = {}, {}
+    spans, cls = {}, {}
     for r in tsv(f):
-        rid = re.sub(r"_split_\d+$", "", r["Read_id"]); cls[r["Classification"]] = cls.get(r["Classification"], 0) + 1
-        span = max([int(b) - int(a) + 1 for a, b in re.findall(r"CAR_insert_\d+to\d+inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or "")] or [0])
-        reads[rid] = reads.get(rid, False) or span >= p["ki_min_insert_frac"] * d["insert_len"]
+        rid = re.sub(r"_split_\d+$", "", r["Read_id"])
+        cls.setdefault(rid, r["Classification"])
+        spans.setdefault(rid, []).extend((int(a), int(b)) for a, b in
+            re.findall(r"CAR_insert_\d+to\d+inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or ""))
+    need = p["ki_min_insert_frac"] * d["insert_len"]
+    reads = {rid: union_len(s) >= need for rid, s in spans.items()}
+    cnt = {}
+    for c in cls.values(): cnt[c] = cnt.get(c, 0) + 1
+    cls = cnt
     n, k = len(reads), sum(reads.values())
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads with CAR_insert integration >={p['ki_min_insert_frac']:.0%} of insert / classified reads (split segments merged)",
+    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads whose CAR_insert integration covers >={p['ki_min_insert_frac']:.0%} of the insert (union of blocks) / classified reads",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cls.items(), key=lambda x: -x[1])[:5]))
 
 TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo}

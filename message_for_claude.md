@@ -1,7 +1,10 @@
 # message_for_claude
 
-Handoff note written 2026-11-11. Working tree is **uncommitted**: `git status --short` shows ~25 entries.
-Nothing has been pushed, no image has been built, no pipeline step has been re-run.
+Handoff note written 2026-11-11, updated after the first successful build. The CRISPResso2 removal and the
+single-image switch are **committed** (4b89cde, cc20821) and pushed. The image has been built, pushed to
+`ghcr.io/ssenci97/ont-knockin-val` (public) and verified: a rebuild from `containers/kv.lock.txt`
+reproduced all 313 packages identically, and `containers/images.env` holds the pushed digest.
+**No pipeline step has been re-run since 2026-11-09**, so no results reflect any of today's changes.
 
 ## Objective
 
@@ -36,7 +39,7 @@ travel with the pipeline, it was dropped. Consequences, all applied:
 Two further findings from the first local Docker build:
 - **`archive.ubuntu.com` does not resolve on the institute network** (nor does `security.ubuntu.com`;
   `deb.debian.org`, `conda.anaconda.org`, `github.com` and `ghcr.io` all do). apt can never work here.
-  `Dockerfile.base` no longer uses apt at all: `curl`, `unzip`, `time` and `util-linux` now come from
+  `containers/Dockerfile` uses no apt at all: `curl`, `unzip`, `time` and `util-linux` now come from
   conda-forge via `envs/kv.yml`, so they land in `containers/kv.lock.txt` like everything else. This is
   strictly better for reproducibility and also removes the old rootless-podman apt-sandbox workaround.
 - `kv_time` in `analysis_env.sh` no longer hardcodes `/usr/bin/time`; it resolves `type -P time` once
@@ -62,12 +65,11 @@ to create a PAT and export `KV_GITHUB_TOKEN`; `build.sh login` pipes it via stdi
    container, because it needs `sbatch`; it auto-detects `containers/ont-knockin-val.sif`.
 4. **Run metadata** — `src/sample_meta.py` is the single writer of `results/meta/<sample_id>.json`
    (submitted block, per-step params, read counts, SLURM ids, pipeline commit, image, tool commits).
-5. **Diagrams** — five graphviz sources in `docs/diagrams/`, rendered to `docs/img/` by `src/diagrams.sh`,
+5. **Diagrams** — six graphviz sources in `docs/diagrams/`, rendered to `docs/img/` by `src/diagrams.sh`,
    embedded in the README.
-6. **Containers** — `containers/Dockerfile.base` (publishable: conda env, cwltool, minimap2 2.16, ALPINE)
-   -- superseded, see the 2026-11-11 decision above: one `containers/Dockerfile`, one public image. `slurms/analysis_env.sh` re-executes each step inside the
-   image when `KV_SIF` or `KV_IMAGE` is set; verified with stub engines including the sbatch spool case.
-7. **Licences** — `LICENSES.md` at root + `LICENSES/`. Two tools, both redistributable, one public image.
+6. **Containers** — one `containers/Dockerfile`, one public image, built with Docker and pulled on Orfeo
+   with `singularity pull`. `slurms/analysis_env.sh` re-executes each step inside the image when `KV_SIF`
+   or `KV_IMAGE` is set.
 8. **Pinning** — tool commits (`configs/tools.tsv`, full SHAs, enforced), base image digest
    (`containers/pins.env`), conda lock (`containers/kv.lock.txt`, via `build.sh lock`), reference downloads
    (`configs/refs.sha256`, verified by `04_build_refs`).
@@ -78,24 +80,24 @@ to create a PAT and export `KV_GITHUB_TOKEN`; `build.sh login` pipes it via stdi
 
 ## Next, in order
 
-1. **Build locally with Docker**: `containers/build.sh build`. Then `lock` and `build` again for a solver-free rebuild. `KV_OWNER` defaults to the owner of `origin` (`ssenci97`).
-2. **Push**: `KV_GITHUB_TOKEN=<PAT write:packages> containers/build.sh ship`. One public package.
-   Claude has no GitHub credentials and must never supply any.
-3. **Pull on Orfeo**: `containers/build.sh orfeo` prints the exact `singularity pull` by digest.
-4. **Commit the generated pins**: `containers/kv.lock.txt`, `containers/images.env`, `configs/refs.sha256`.
-5. **`tools/ALPINE`, `tools/CRISPRLungo` are tracked as gitlinks with no `.gitmodules`.** A fresh clone
-   gives empty directories. Needs `git rm --cached tools/ALPINE tools/CRISPRLungo` (and `tools/CRISPResso2`,
-   now obsolete) — left to the user, it rewrites the index.
-6. **Re-run the pipeline** once containerized and compare `results/summary_matrix.tsv` against the
-   2026-11-09 run: ALPINE 0.0/0.0/1.31/0.0/0.35, CRISPRLungo 0.0/0.0/4.23/0.85/7.12,
-   (Mock/NoDonor/dsDNA/ssDNA/ssCTS). ALPINE's numbers should rise,
-   because `truncated_cutoff` moved from 0.95 to 0.80. If they do not, suspect the `map-hifi` bug.
-7. **Open question for the user**: whether to patch ALPINE's `map-hifi` line. It would fix ONT arm checking
+1. **Re-run the pipeline on Orfeo** with the image: `containers/build.sh orfeo`, run the printed
+   `singularity pull`, then `export KV_SIF=$PWD/containers/ont-knockin-val.sif` and
+   `bash slurms/run_all.sh --sbatch`. Nothing has been run inside this image beyond the two no-op steps.
+2. **Expect CRISPRLungo's numbers to rise.** On 2026-11-11 `src/summarize.py` was fixed to measure the CAR
+   insert as the **union** of its integration blocks instead of the largest single block; reads whose insert
+   was reported in pieces were being missed. ALPINE's should also rise because `truncated_cutoff` moved from
+   0.95 to 0.80. Compare against 2026-11-09: ALPINE 0.0/0.0/1.31/0.0/0.35, CRISPRLungo 0.0/0.0/4.23/0.85/7.12
+   (Mock/NoDonor/dsDNA/ssDNA/ssCTS). If ALPINE does not move, suspect the `map-hifi` bug.
+3. **Open question for the user**: whether to patch ALPINE's `map-hifi` line. It would fix ONT arm checking
    but means modifying a tool pinned by commit. Not done; deliberately.
+4. **Two interpretation caveats now documented in the README** and worth repeating to the user: the control
+   sample is passed as its own `--control` to CRISPRLungo, so that tool's control value is ~0 by
+   construction; and the 3,500-7,500 bp read filter drops alleles with >858 bp deleted, so `ki_pct` is a
+   fraction of length-passing reads, not of all amplicon reads.
 
 ## The user's acceptance criteria (stated 2026-11-11, second session)
 
-1. Build the image with a script → `containers/build.sh all`.
+1. Build the image with a script → `containers/build.sh build`.
 2. Run it from the GUI, with a button for a preconfigured default run → Run tab, "Run default pipeline".
 3. See results and per-sample metadata at the end → Results tab.
 

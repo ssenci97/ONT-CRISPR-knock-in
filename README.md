@@ -27,7 +27,7 @@ The page has three tabs:
    sets `#SBATCH --array=1-N` in every per-sample step, so the sheet and the array size cannot drift apart.
    Fields come from `configs/sample_schema.json`; add one there and it appears in the form and the JSON and
    nowhere else. Editing `configs/samples.tsv` by hand still works.
-2. **Run** — **Run default pipeline (SLURM)** submits all eight steps with their dependencies, using the
+2. **Run** — **Run default pipeline (SLURM)** submits all seven steps with their dependencies, using the
    sample sheet and the parameters already in `configs/param_configs.yaml`. Nothing to configure. The tab
    then shows the queue, per-step log progress and the tail of `run_all.sh`, refreshing every 5 seconds.
    A second button runs the same thing without a scheduler, for a laptop.
@@ -121,9 +121,9 @@ the two downloads against `configs/refs.sha256`, and fails rather than proceedin
 Two of those pins are created on first run, then committed:
 
 ```bash
-containers/build.sh base      # solves the environment once
+containers/build.sh build     # solves the environment once
 containers/build.sh lock      # writes containers/kv.lock.txt from what was solved
-containers/build.sh base      # rebuilds from the lock: no solver, identical packages
+containers/build.sh build     # rebuilds from the lock: no solver, identical packages
 bash slurms/04_build_refs.sh  # writes configs/refs.sha256 on the first run
 git add containers/kv.lock.txt configs/refs.sha256
 ```
@@ -169,7 +169,9 @@ The two knock-in percentages are not interchangeable, and ALPINE is the stricter
 
 - ALPINE calls `HDR-CD19` only when the inserted transgene reaches `truncated_cutoff` of the full insert
   **and** both homology arms align to the read. Everything shorter becomes `Non-HDR-without-ITR-CD19`.
-- CRISPRLungo counts reads whose `CAR_insert` integration spans at least the same fraction of the insert.
+- CRISPRLungo counts reads whose `CAR_insert` integration blocks **together** cover at least the same
+  fraction of the insert. The blocks are merged before measuring, so an insert reported in two pieces is
+  scored on its union, not on its largest piece.
 
 `shared.ki_min_insert_frac` (default 0.80) drives both, so they answer the same question.
 The `metric` column of `results/summary.tsv` states the rule used for each row.
@@ -178,6 +180,15 @@ The `metric` column of `results/summary.tsv` states the rule used for each row.
 `DockerFile/classify/utils/data_utils.py`, even when `data_type: nanopore`. On ONT reads the wrong preset
 makes genuine HDR reads fail the arm check and be downgraded, so ALPINE under-reports knock-in here.
 `alpine_data_type` does not reach that call.
+
+**Two caveats on the denominators.** First, `06_lungo` passes `--control <the control sample>` to every
+sample *including the control itself*, so CRISPRLungo's value for the control is ~0 by construction and is
+not independent evidence of specificity — `NoDonor` is the informative negative control for that tool.
+ALPINE ignores `--control`, so its control value *is* informative. Second, `03_fetch` keeps reads of
+3,500–7,500 bp while the WT amplicon is 4,358 bp and the knock-in allele 6,373 bp: both pass, but alleles
+with more than ~858 bp deleted fall below the floor and never reach either tool. `ki_pct` is therefore a
+fraction of length-passing reads, not of all amplicon reads. `results/summary.tsv` carries `reads_in`
+(pre-filter) beside `reads_used` so the gap is visible.
 
 ## Parameters
 Hardcoded at the top of each script, overridable through `configs/param_configs.yaml`. The `shared:`

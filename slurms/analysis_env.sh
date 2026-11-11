@@ -65,7 +65,8 @@ kv_footer() { kv_log "$(date '+%F %T') | elapsed $(date -u -d @$((SECONDS-KV_T0)
 kv_ids() { awk -F'\t' 'NR>1 && $1!=""{print $1}' "$SAMPLES_TSV"; }
 kv_samples() { if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then kv_ids | sed -n "${SLURM_ARRAY_TASK_ID}p"; else kv_ids; fi; }
 kv_field() { awk -F'\t' -v id="$1" -v c="$2" 'NR==1{for(i=1;i<=NF;i++)if($i==c)n=i} NR>1&&$1==id{print $n}' "$SAMPLES_TSV"; }
-kv_control() { awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)if($i=="control")n=i} NR>1&&$n==1{print $1}' "$SAMPLES_TSV"; }
+kv_controls() { awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)if($i=="control")n=i} NR>1&&$n==1{print $1}' "$SAMPLES_TSV"; }
+kv_control() { local c; mapfile -t c < <(kv_controls); [ ${#c[@]} -gt 1 ] && kv_log "!! ${#c[@]} control samples in $SAMPLES_TSV (${c[*]}); using ${c[0]}" >&2; printf '%s' "${c[0]:-}"; }
 kv_submitted() { "$KV_PY" -I -c "import json, os, sys; p = '$KV_ROOT/configs/samples/%s.json' % sys.argv[1]; print(json.load(open(p)).get(sys.argv[2], '') if os.path.exists(p) else '')" "$1" "$2"; }
 kv_meta() { local id="$1" step="$2"; shift 2; "$KV_PY" -I "$KV_ROOT/src/sample_meta.py" "$id" "$step" "$@"; }
 kv_design() { "$KV_PY" -I -c "import json; d=json.load(open('$REFS/design.json')); print($1)"; }

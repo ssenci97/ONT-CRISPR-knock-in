@@ -17,15 +17,14 @@ One name per concept, identical as yaml key, bash variable and argparse flag. SL
 | `KV_SIF` / `KV_IMAGE` | apptainer/singularity `.sif` or docker/podman image; set to run every step inside the container | `slurms/analysis_env.sh`, all steps |
 | `KV_BIND` | host path bound into the container (default `$KV_ROOT`) | `slurms/analysis_env.sh` |
 
-Data flow: 03 `data/<sample_id>.fastq.gz` + `data/read_stats.tsv` -> 04 `refs/*` -> 05/06/07 `results/<Tool>/...` -> 08 `results/summary*.tsv`.
+Data flow: 03 `data/<sample_id>.fastq.gz` + `data/read_stats.tsv` -> 04 `refs/*` -> 05/06 `results/<Tool>/...` -> 07 `results/summary*.tsv`.
 
 ## Metadata
 
 | File | Written by | Holds |
 |---|---|---|
 | `configs/samples/<sample_id>.json` | `src/gui_serve.py` (the form) | what the wet lab submitted: operator, date, cell type, donor format and dose, flow cell, basecaller, notes, optional `fastq_path` |
-| `results/meta/<sample_id>.json` | `src/sample_meta.py`, via `kv_meta <sample_id> <step> k=v` | the submitted block, one record per step (parameters, read counts, SLURM job and array ids, timestamp), the pipeline commit, and the container image plus the three tool commits |
-
+| `results/meta/<sample_id>.json` | `src/sample_meta.py`, via `kv_meta <sample_id> <step> k=v` | the submitted block, one record per step (parameters, read counts, SLURM job and array ids, timestamp), the pipeline commit, and the container image plus the two tool commits |
 | `results/run.log`, `results/run_state.json` | `src/gui_serve.py` | the console's launch record: pid, mode, engine, image, start time, sample list |
 
 `src/sample_meta.py` is the only writer of `results/meta/`. Steps never touch those files directly; they

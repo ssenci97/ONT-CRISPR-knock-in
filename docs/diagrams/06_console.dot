@@ -4,7 +4,7 @@ digraph console {
   node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
   edge [color="#6b6862", arrowsize=0.7];
 
-  build [label="containers/build.sh all\n(once, rootless podman)", fillcolor="#fdf2e3"];
+  build [label="containers/build.sh orfeo\n(once: singularity pull, no root)", fillcolor="#fdf2e3"];
   sif [label="containers/ont-knockin-val.sif", fillcolor="#e8f1ee"];
   build -> sif;
 
@@ -17,7 +17,7 @@ digraph console {
   }
   serve -> t1 [style=dotted]; t1 -> t2 -> t3;
 
-  sb [label="run_all.sh --sbatch\n8 steps, dependencies", fillcolor="#f6f5f2"];
+  sb [label="run_all.sh --sbatch\n7 steps, dependencies", fillcolor="#f6f5f2"];
   steps [label="each step re-execs\ninside the .sif (KV_SIF)", fillcolor="#f6f5f2"];
   out [label="results/summary_matrix.tsv\nresults/meta/<id>.json", fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
   t2 -> sb -> steps -> out; sif -> steps [style=dotted]; out -> t3 [constraint=false];

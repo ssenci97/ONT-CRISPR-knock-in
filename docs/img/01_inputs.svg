@@ -9,7 +9,7 @@
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 417)">
 <title>inputs</title>
 <polygon fill="white" stroke="transparent" points="-4,4 -4,-417 602,-417 602,4 -4,4"/>
-<text text-anchor="middle" x="299" y="-400.2" font-family="Helvetica,sans-Serif" font-size="11.00">The per&#45;sample input contract: the same six files, handed to each tool under its own flag</text>
+<text text-anchor="middle" x="299" y="-400.2" font-family="Helvetica,sans-Serif" font-size="11.00">The per&#45;sample input contract: the same inputs, handed to each tool under its own flag</text>
 <g id="clust1" class="cluster">
 <title>cluster_made</title>
 <polygon fill="white" stroke="#c9c4bb" stroke-dasharray="5,2" points="18,-141 18,-385 198,-385 198,-141 18,-141"/>

@@ -18,7 +18,7 @@ copying the software "in any form", so it could not ship inside the container im
 - Native: `conda` ≥ 23 (libmamba solver), `git`, `curl`.
 - Containerized: `docker` (or `podman`) on a workstation to build and push; `singularity` on the cluster to pull. No sudo on the cluster, no GPU.
 - About 15 GB free: 6.5 GB of reads, 5 GB of conda envs, the rest intermediate. Add ~5 GB for the image.
-- SLURM headers request 16 CPU / 32 GB on partition GENOA. Locally the scripts use 8 threads. The old 64 CPU / 240 GB request on the analysis steps existed only for the removed third tool.
+- SLURM headers request 16 CPU / 32 GB on partition GENOA for steps 01-04 and 07; the two analysis steps (`05_alpine`, `06_lungo`) request 32 CPU / 128 GB for 24 h. Locally the scripts use 8 threads. The 64 CPU / 240 GB / 48 h header belonged to the removed third tool's own step and went with it.
 
 ## 3. Layout
 The repository holds only scripts, envs, configs and docs. Everything else is created by the pipeline and gitignored.
@@ -110,6 +110,16 @@ From an earlier **subsampled** run (20,000 reads per sample, seed 42); supersede
 | ALPINE (strict HDR) | 0.00 | 0.00 | **2.30** | **0.38** | **3.70** |
 | CRISPRLungo (≥ 80 % of the CAR insert) | 0.00 | 0.01 | **4.12** | **0.77** | **7.14** |
 
+Full-data run of 2026-11-09 (all length-passing reads), which supersedes the table above:
+
+| Tool | Mock | NoDonor | dsDNA | ssDNA | ssCTS |
+|---|---|---|---|---|---|
+| ALPINE (strict HDR) | 0.00 | 0.00 | **1.31** | **0.00** | **0.35** |
+| CRISPRLungo (≥ 80 % of the CAR insert) | 0.00 | 0.00 | **4.23** | **0.85** | **7.12** |
+
+Both predate the 2026-11-11 fix that measures the CAR insert as the **union** of its integration blocks
+rather than the largest single block, so CRISPRLungo's figures will rise on the next run.
+
 - **The controls are clean** in both tools.
 - **Both rank the donors the same way: ssCTS > dsDNA ≫ ssDNA**, as the paper does.
 - **ALPINE counts precise HDR only.** Partial integrations (`Non-HDR-without-ITR`) add 4–6 % in donor samples, and 1.1 % in NoDonor, which is that class's false-positive floor.
@@ -145,6 +155,6 @@ From an earlier **subsampled** run (20,000 reads per sample, seed 42); supersede
 ## 12. Which tool to use
 **ALPINE 8/10 · CRISPRLungo 7/10**, for ONT knock-in amplicons.
 - **ALPINE:** the strictest precise-HDR fraction, with partial integrations reported separately. Treat its
-  absolute numbers with care until the `map-hifi` arm-check bug above is patched. About 1 min and 0.4 GB per sample. Costs a CWL workaround, since the images are private.
-- **CRISPRLungo:** the full outcome spectrum with control filtering and donor matching. About 1 min and 0.6 GB per sample. Easiest to install.
+  absolute numbers with care until the `map-hifi` arm-check bug above is patched. About 6 min and 0.15 GB per sample on full data. Costs a CWL workaround, since the images are private.
+- **CRISPRLungo:** the full outcome spectrum with control filtering and donor matching. About 11 min and 5 GB per sample on full data. Easiest to install.
 - **Default:** run ALPINE and CRISPRLungo together, with a mock control.
