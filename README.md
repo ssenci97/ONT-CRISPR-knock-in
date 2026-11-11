@@ -1,6 +1,10 @@
 # KNOCKIN-VAL
 
-Wrapper to run three long-read CRISPR **knock-in** analysis tools on the same ONT amplicon data: **ALPINE**, **CRISPRLungo**, **CRISPResso2**.
+Wrapper to run two long-read CRISPR **knock-in** analysis tools on the same ONT amplicon data: **ALPINE** and **CRISPRLungo**.
+
+> A third tool, CRISPResso2, was part of this pipeline until 2026-11-11 and was removed: its licence
+> forbids copying it in any form, so it could not ship in the image. [LICENSES.md](LICENSES.md) records
+> what that cost and what it bought.
 
 Scope: Oxford Nanopore sequencing of CRISPR knock-in PCR amplicons. Only tools with a native knock-in readout are included.
 
@@ -9,7 +13,7 @@ Scope: Oxford Nanopore sequencing of CRISPR knock-in PCR amplicons. Only tools w
 Three steps on Orfeo, none of which need a shell after the first:
 
 ```bash
-containers/build.sh all                 # 1. build base + full image and convert to .sif
+containers/build.sh orfeo               # 1. prints the singularity pull; run it once
 python3 src/gui_serve.py                # 2. start the console on the login node
 ssh -L 8000:127.0.0.1:8000 <user>@orfeo # from your laptop, then open http://127.0.0.1:8000/
 ```
@@ -45,46 +49,52 @@ Run from the repo root (SLURM jobs use the submit dir as root). Needs `conda` on
 
 ## Containers
 
-Orfeo does not run Docker, so the target is one OCI image used two ways: **podman** (rootless, no sudo) to
-build and test, **apptainer** to run on the cluster. Running in a container makes `01_clone` and `02_envs`
+Orfeo does not build images and does not run Docker. So the image is **built with Docker on a workstation,
+pushed to GHCR, and pulled on Orfeo with Singularity**, which converts it to a `.sif` on the way in. No
+root and no build tooling are needed on the cluster. Running in a container makes `01_clone` and `02_envs`
 no-ops: the tools and the conda environment are already inside, which is the part most likely to rot.
 
-The image is split in two because **CRISPResso2 may not be redistributed** (see [LICENSES.md](LICENSES.md)):
+Both tools are redistributable, so there is **one image** and it is public — no token is needed to pull
+it on Orfeo (see [LICENSES.md](LICENSES.md)):
 
 ![containers](docs/img/05_containers.svg)
 
-```bash
-export KV_OWNER=<your lowercase ghcr namespace>
-containers/build.sh base      # publishable layer: conda env, cwltool, minimap2 2.16, ALPINE (MIT)
-containers/build.sh full      # adds CRISPRLungo + CRISPResso2 on top; local only
-containers/build.sh sif       # converts the FULL image to containers/ont-knockin-val.sif
-containers/build.sh push      # pushes the base layer only; 'push-full' is refused on purpose
-containers/build.sh all       # base, full and sif in one go
-```
-Commits come from `configs/tools.tsv`, and the build refuses to start if any of them is not a full SHA.
-
-**The thing you run is the full image, never the base.** The base has no CRISPRLungo and no CRISPResso2,
-and inside a container `01_clone`/`02_envs` do nothing, so running the base would leave steps 06 and 07
-with no tools — and because both are wrapped in `|| kv_log "!! failed"`, the jobs would exit 0 with every
-sample silently empty. Pulling the base from GHCR only saves you the conda solve:
+### On the workstation (Docker)
 
 ```bash
-podman pull ghcr.io/<owner>/ont-knockin-val-base:1.0   # optional: skip the solve
-containers/build.sh full && containers/build.sh sif
+export KV_OWNER=<your lowercase github namespace>      # defaults to the owner of 'origin'
+export KV_GITHUB_TOKEN=<PAT with write:packages>       # only needed to push
 
-export KV_IMAGE=localhost/ont-knockin-val:1.0          # podman, on your own machine
-bash slurms/run_all.sh
-
-export KV_SIF=$PWD/containers/ont-knockin-val.sif      # apptainer, on Orfeo
-bash slurms/run_all.sh --sbatch
+containers/build.sh build                               # build the image
+containers/build.sh ship                                # login, push, print the Orfeo lines
 ```
+The push records the image **manifest digest** in `containers/images.env`; commit that file, because it is
+what makes the cluster-side pull reproducible. Individual targets: `build lock login push ship orfeo`.
+Commits come from `configs/tools.tsv` and the build refuses to start if any is not a full SHA.
+`KV_ENGINE=podman` switches engine.
+
+### On Orfeo (Singularity)
+
+```bash
+containers/build.sh orfeo                               # prints exactly these lines, filled in
+```
+```bash
+export SINGULARITY_CACHEDIR=$PWD/.singularity
+singularity pull --force containers/ont-knockin-val.sif docker://ghcr.io/<owner>/ont-knockin-val@sha256:<digest>
+
+export KV_SIF=$PWD/containers/ont-knockin-val.sif
+bash slurms/run_all.sh --sbatch                         # or start the console and press the button
+```
+Pull **by digest**, from `containers/images.env`, not by tag.
+
 `slurms/analysis_env.sh` re-executes each step script inside the container with a whitelisted environment
 (`--cleanenv --no-home` under apptainer, so a `module load` or a stray `~/.condarc` on the host cannot
 reach in). Under `sbatch` the batch script lives in SLURM's spool directory, which is not mounted, so it is
 copied into `logs/` first. `KV_BIND` takes a comma-separated list of host paths if your data sits outside
-the repo — mount the symlink target too, not just the symlink. With neither `KV_SIF` nor `KV_IMAGE` set,
-everything runs natively exactly as before. The image reference, the two tool commits and the CRISPResso2
-conda version are recorded in `results/meta/<sample_id>.json` for every sample.
+the repo — mount the symlink target too, not just the symlink. `KV_IMAGE` runs the same steps under
+docker/podman on a workstation. With neither `KV_SIF` nor `KV_IMAGE` set, everything runs natively exactly
+as before. The image reference and the two tool commits are recorded in `results/meta/<sample_id>.json`
+for every sample.
 
 ## Reproducibility
 
@@ -93,11 +103,16 @@ Every external input is pinned to something immutable, and the pin is a file in 
 | What | Pinned by | Where |
 |---|---|---|
 | ALPINE and CRISPRLungo | full 40-character commit SHAs | [`configs/tools.tsv`](configs/tools.tsv) |
-| CRISPResso2 | conda package version (it is installed from bioconda, not from the clone) | `containers/kv.lock.txt` |
 | Container base image | manifest digest, not a tag | [`containers/pins.env`](containers/pins.env) |
+| The built images | manifest digest, written by every push | `containers/images.env` |
 | Conda packages | explicit URL + md5 per package | `containers/kv.lock.txt` |
+| OS-level tools (`curl`, `unzip`, `time`, `flock`) | installed from conda-forge, **not apt**, so they are in the lock too | `envs/kv.yml` |
 | hg38 region and the paper's supplementary xlsx | sha256 of the downloaded files | `configs/refs.sha256` |
 | Sequencing reads | SRA run accessions, immutable by definition | [`configs/samples.tsv`](configs/samples.tsv) |
+
+The image installs **nothing from apt**. Every binary comes from conda-forge or bioconda and is therefore
+captured by `containers/kv.lock.txt`; apt packages would have been the one unpinned input left, and the
+distribution mirrors are not reachable from every network anyway.
 
 `01_clone` refuses to run if a `commit` in `tools.tsv` is not a full SHA, and verifies that `HEAD` after
 checkout equals it. `containers/build.sh` applies the same check before building. `04_build_refs` verifies
@@ -120,12 +135,12 @@ and the two pin files. `tools/ data/ refs/ results/ logs/` are generated and git
 ## Steps
 | Step | Does | Writes |
 |---|---|---|
-| `01_clone` | clones the 3 tools at the pinned commits in `configs/tools.tsv` | `tools/` |
-| `02_envs` | creates the 5 conda envs from `envs/*.yml` | `kv_*` envs |
+| `01_clone` | clones the 2 tools at the pinned commits in `configs/tools.tsv` | `tools/` |
+| `02_envs` | creates the conda env from `envs/kv.yml` | `kv` env |
 | `03_fetch` | downloads the SRA runs, length-filters (3.5–7.5 kb); **all passing reads are kept, no subsampling** | `data/<label>.fastq.gz`, `data/read_stats.tsv` |
 | `04_build_refs` | builds WT / knock-in references and the ALPINE config | `refs/` |
-| `05_alpine` · `06_lungo` · `07_crispresso` | runs each tool on every read of every sample | `results/<tool>/` |
-| `08_summary` | one knock-in % per tool x sample | `results/summary*.tsv` |
+| `05_alpine` · `06_lungo` | runs each tool on every read of every sample | `results/<tool>/` |
+| `07_summary` | one knock-in % per tool x sample | `results/summary*.tsv` |
 
 Every per-sample step also appends what it did to `results/meta/<sample_id>.json`: the submitted wet-lab
 metadata, the parameters used, read counts, SLURM job ids and the pipeline commit. `src/sample_meta.py` is
@@ -135,29 +150,28 @@ Every step is a standalone SLURM script: `sbatch slurms/06_lungo.sh` or `bash sl
 
 ## What each run reads
 
-Running one tool and running all three feed on **the same files**. The only difference is how many
+Running one tool and running both feed on **the same files**. The only difference is how many
 readers there are and whether SLURM chains the steps for you.
 
 | | |
 |---|---|
 | The input contract, and the flag each tool receives it under | ![inputs](docs/img/01_inputs.svg) |
 | One tool on its own: `sbatch slurms/06_lungo.sh` | ![single tool](docs/img/02_single_tool.svg) |
-| All three: `bash slurms/run_all.sh --sbatch` | ![all tools](docs/img/03_all_tools.svg) |
+| Both: `bash slurms/run_all.sh --sbatch` | ![all tools](docs/img/03_all_tools.svg) |
 | Where sample metadata comes from, and what the run records | ![metadata](docs/img/04_metadata.svg) |
 | What a wet-lab user does: build once, then three tabs | ![console](docs/img/06_console.svg) |
 
 Sources are in `docs/diagrams/*.dot`; re-render with `bash src/diagrams.sh` (needs graphviz).
 
-## Comparing the three tools
+## Comparing the two tools
 
-The three knock-in percentages are not interchangeable, and ALPINE is the strictest by a wide margin:
+The two knock-in percentages are not interchangeable, and ALPINE is the stricter by a wide margin:
 
 - ALPINE calls `HDR-CD19` only when the inserted transgene reaches `truncated_cutoff` of the full insert
   **and** both homology arms align to the read. Everything shorter becomes `Non-HDR-without-ITR-CD19`.
 - CRISPRLungo counts reads whose `CAR_insert` integration spans at least the same fraction of the insert.
-- CRISPResso2 has no length threshold at all: a read is HDR if it aligns better to the KI amplicon than to WT.
 
-`shared.ki_min_insert_frac` (default 0.80) now drives the first two, so they answer the same question.
+`shared.ki_min_insert_frac` (default 0.80) drives both, so they answer the same question.
 The `metric` column of `results/summary.tsv` states the rule used for each row.
 
 **Known upstream issue.** ALPINE validates the homology arms with `minimap2 -ax map-hifi`, hardcoded in
@@ -179,4 +193,4 @@ bash slurms/06_lungo.sh --yaml-in    # rerun with them
 Scripts, envs, configs, the submission form (`gui/`) and docs only.
 `tools/ data/ refs/ results/ logs/` are created by the pipeline and gitignored.
 
-Licences of the bundled tools: **[LICENSES.md](LICENSES.md)**. Full documentation: **[Manual.md](Manual.md)**. Per-tool notes: [ALPINE](docs/manuals/ALPINE.md) · [CRISPRLungo](docs/manuals/CRISPRLungo.md) · [CRISPResso2](docs/manuals/CRISPResso2.md). Shared input names: [Inputs](docs/manuals/Inputs.md).
+Licences of the bundled tools: **[LICENSES.md](LICENSES.md)**. Full documentation: **[Manual.md](Manual.md)**. Per-tool notes: [ALPINE](docs/manuals/ALPINE.md) · [CRISPRLungo](docs/manuals/CRISPRLungo.md). Shared input names: [Inputs](docs/manuals/Inputs.md).

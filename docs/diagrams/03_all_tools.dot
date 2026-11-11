@@ -1,6 +1,6 @@
 digraph all_tools {
   graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="All-tools run:  bash slurms/run_all.sh --sbatch   (same inputs, same files, three readers)"];
+         label="All-tools run:  bash slurms/run_all.sh --sbatch   (same inputs, same files, two readers)"];
   node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
   edge [color="#6b6862", arrowsize=0.7];
 
@@ -25,9 +25,8 @@ digraph all_tools {
 
   a [label="05_alpine", fillcolor="#f2eff9"];
   l [label="06_lungo", fillcolor="#f2eff9"];
-  cr [label="07_crispresso", fillcolor="#f2eff9"];
-  contract -> a; contract -> l; contract -> cr;
+  contract -> a; contract -> l;
 
-  s [label="08_summary\nresults/summary_matrix.tsv", fillcolor="#f6f5f2"];
-  a -> s; l -> s; cr -> s [label="afterany", fontsize=9, fontname="Helvetica"];
+  s [label="07_summary\nresults/summary_matrix.tsv", fillcolor="#f6f5f2"];
+  a -> s; l -> s [label="afterany", fontsize=9, fontname="Helvetica"];
 }

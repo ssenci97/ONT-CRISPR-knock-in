@@ -26,6 +26,10 @@ dependencies:
   - pyyaml
   - seqkit
   - tqdm
-  - crispresso2
   - sra-tools>=3.1
   - pigz
+  - curl
+  - unzip
+  - time
+  - util-linux
+  - ca-certificates

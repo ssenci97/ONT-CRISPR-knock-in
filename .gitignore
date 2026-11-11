@@ -6,3 +6,4 @@ logs/
 containers/*.sif
 *.lock
 __pycache__/
+.singularity/

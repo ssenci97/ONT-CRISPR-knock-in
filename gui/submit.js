@@ -187,7 +187,7 @@ async function launch(sbatch) {
 async function refreshResults() {
   const r = await (await fetch("/api/results")).json();
   const m = $("#matrix");
-  if (!r.matrix) m.textContent = "not available yet — results/summary_matrix.tsv appears when 08_summary finishes";
+  if (!r.matrix) m.textContent = "not available yet — results/summary_matrix.tsv appears when 07_summary finishes";
   else {
     m.textContent = "";
     const t = el("table"), head2 = el("thead"), hr = el("tr");

@@ -26,22 +26,10 @@ def tool_commits():
         if r.returncode == 0: out[name] = r.stdout.strip()
     return out
 
-def crispresso_version():
-    p = "/opt/crispresso2.version.json"
-    if os.path.exists(p):
-        try: return json.load(open(p))[0]["version"]
-        except (ValueError, IndexError, KeyError): pass
-    r = subprocess.run(["conda", "list", "-n", "kv", "crispresso2", "--json"], capture_output=True, text=True)
-    if r.returncode != 0: return None
-    try: return json.loads(r.stdout)[0]["version"]
-    except (ValueError, IndexError, KeyError): return None
-
 def environment():
     e = {k.lower(): os.environ[k] for k in ("KV_SIF", "KV_IMAGE") if os.environ.get(k)}
     e["containerized"] = bool(os.environ.get("KV_INSIDE"))
     e["tools"] = tool_commits()
-    v = crispresso_version()
-    if v: e["tools"]["CRISPResso2"] = f"conda {v}"
     return e
 
 def submitted(sample_id):

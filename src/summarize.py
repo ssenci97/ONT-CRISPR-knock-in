@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect knock-in % (ALPINE, CRISPRLungo, CRISPResso2) on all length-passing reads into results/summary*.tsv."""
+"""Collect knock-in % (ALPINE, CRISPRLungo) on all length-passing reads into results/summary*.tsv."""
 import argparse, csv, datetime, glob, json, os, re, resource, time
 import yaml
 from tqdm import tqdm
@@ -48,15 +48,7 @@ def lungo(sample_id, d, p):
     return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads with CAR_insert integration >={p['ki_min_insert_frac']:.0%} of insert / classified reads (split segments merged)",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cls.items(), key=lambda x: -x[1])[:5]))
 
-def crispresso(sample_id, d, p):
-    f = f"{RES}/CRISPResso2/CRISPResso_on_{sample_id}/CRISPResso_quantification_of_editing_frequency.txt"
-    if not os.path.exists(f): return None
-    rows = tsv(f); n, rin = int(rows[0]["Reads_aligned_all_amplicons"]), int(rows[0]["Reads_in_input"])
-    k = sum(int(r["Reads_aligned"]) for r in rows if r["Amplicon"] == "HDR"); wt = next(r for r in rows if r["Amplicon"] != "HDR")
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric="HDR-amplicon reads / aligned reads (global alignment, no insert-length threshold)",
-                notes=f"input {rin}, aligned {n} ({pct(n, rin)}%), WT-assigned modified {float(wt['Modified%']):.1f}%")
-
-TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo, "CRISPResso2": crispresso}
+TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo}
 
 ###################################### main
 def main():

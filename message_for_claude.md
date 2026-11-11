@@ -7,8 +7,43 @@ Nothing has been pushed, no image has been built, no pipeline step has been re-r
 
 Make KNOCKIN-VAL lightweight, completely reproducible, and usable by wet-lab scientists on the **Orfeo**
 cluster (Area Science Park), in the spirit of the discontinued Nastro pipeline but without its interfaces.
-Constraints the user stated: **no sudo** (rootless podman only), **never work directly on Orfeo** — the user
-builds and tests there, Claude writes the scripts — and **all tool licences visible in the repo root**.
+Constraints the user stated: **never work directly on Orfeo** — Claude writes the scripts, the user runs
+them there — and **all tool licences visible in the repo root**.
+
+**2026-11-11, third session: the build strategy changed.** Rootless podman on Orfeo failed three times
+(no `/run/user/$UID`, no systemd user session, and no `/etc/subuid` allocation for the account). Orfeo
+admins then said to **build locally with Docker, push to a registry, and pull on Orfeo with Singularity**.
+That is now the supported path and the README documents it. `build.sh` auto-detects docker and falls back
+to podman; the podman workarounds are kept but are no longer the main route.
+
+**2026-11-11, user decision: CRISPResso2 is removed from the repo.** Its MGH EULA forbids copying the
+software "in any form", so it could not ship in the image; rather than architect around a tool that cannot
+travel with the pipeline, it was dropped. Consequences, all applied:
+- `slurms/07_crispresso.sh`, `envs/kv_crispresso.yml`, `docs/manuals/CRISPResso2.md` and
+  `LICENSES/CRISPResso2.LICENSE.txt` deleted; `crispresso2` removed from `envs/kv.yml` and the
+  `CRISPResso2` row from `configs/tools.tsv`.
+- `08_summary` renamed to **`07_summary`** so steps stay contiguous 01..07. Updated in `run_all.sh`,
+  `analysis_env.sh`, `gui_serve.py`, `gui/submit.js`, `param_configs.yaml` and all docs.
+- `src/summarize.py` TOOLS is now `{ALPINE, CRISPRLungo}`; `crispresso_version()` gone from
+  `src/sample_meta.py`.
+- **The two-image split is gone.** It existed only for the EULA. There is now one `containers/Dockerfile`
+  producing one **public** image, `ghcr.io/<owner>/ont-knockin-val:<tag>`. `Dockerfile.base` deleted.
+  `build.sh` targets are now `build lock login push ship orfeo` — no push-full, no private-package gate,
+  no scp route. Orfeo pulls with `singularity pull` and **needs no credentials**.
+- `LICENSES.md` records why CRISPResso2 went and what it cost (it was the cross-check that validated
+  CRISPRLungo, and it was ~86% of the runtime). Do not re-add it without the user asking.
+
+Two further findings from the first local Docker build:
+- **`archive.ubuntu.com` does not resolve on the institute network** (nor does `security.ubuntu.com`;
+  `deb.debian.org`, `conda.anaconda.org`, `github.com` and `ghcr.io` all do). apt can never work here.
+  `Dockerfile.base` no longer uses apt at all: `curl`, `unzip`, `time` and `util-linux` now come from
+  conda-forge via `envs/kv.yml`, so they land in `containers/kv.lock.txt` like everything else. This is
+  strictly better for reproducibility and also removes the old rootless-podman apt-sandbox workaround.
+- `kv_time` in `analysis_env.sh` no longer hardcodes `/usr/bin/time`; it resolves `type -P time` once
+  (after the env is activated) and degrades to running the command untimed if GNU time is absent.
+
+**Claude has no GitHub credentials and must never supply, invent or reuse any.** Pushing requires the user
+to create a PAT and export `KV_GITHUB_TOKEN`; `build.sh login` pipes it via stdin and never echoes it.
 
 ## Done and verified
 
@@ -30,11 +65,9 @@ builds and tests there, Claude writes the scripts — and **all tool licences vi
 5. **Diagrams** — five graphviz sources in `docs/diagrams/`, rendered to `docs/img/` by `src/diagrams.sh`,
    embedded in the README.
 6. **Containers** — `containers/Dockerfile.base` (publishable: conda env, cwltool, minimap2 2.16, ALPINE)
-   and `containers/Dockerfile` (adds CRISPRLungo + CRISPResso2, never pushed), `containers/build.sh`
-   (podman; targets base/full/sif/lock/push). `slurms/analysis_env.sh` re-executes each step inside the
+   -- superseded, see the 2026-11-11 decision above: one `containers/Dockerfile`, one public image. `slurms/analysis_env.sh` re-executes each step inside the
    image when `KV_SIF` or `KV_IMAGE` is set; verified with stub engines including the sbatch spool case.
-7. **Licences** — `LICENSES.md` at root + `LICENSES/`. CRISPResso2's EULA forbids redistribution, which is
-   why the image is split in two. Do not collapse it back into one pushable image.
+7. **Licences** — `LICENSES.md` at root + `LICENSES/`. Two tools, both redistributable, one public image.
 8. **Pinning** — tool commits (`configs/tools.tsv`, full SHAs, enforced), base image digest
    (`containers/pins.env`), conda lock (`containers/kv.lock.txt`, via `build.sh lock`), reference downloads
    (`configs/refs.sha256`, verified by `04_build_refs`).
@@ -45,19 +78,19 @@ builds and tests there, Claude writes the scripts — and **all tool licences vi
 
 ## Next, in order
 
-1. **User builds on Orfeo**: `containers/build.sh all` (KV_OWNER only needed to push; it defaults to
-   `local`). For a reproducible rebuild: `base`, then `lock`, then `base` again, then `full`, then `sif`.
-   Expect the first solve to be slow. Nothing here has ever been built — treat the first build as
-   debugging, not verification.
-2. **Commit the generated pins**: `containers/kv.lock.txt` and `configs/refs.sha256`.
-3. **`tools/ALPINE`, `tools/CRISPRLungo`, `tools/CRISPResso2` are tracked as gitlinks with no
-   `.gitmodules`.** A fresh clone gives three empty directories. Needs
-   `git rm --cached tools/ALPINE tools/CRISPRLungo tools/CRISPResso2` — left to the user, it rewrites the index.
-4. **Re-run the pipeline** once containerized and compare `results/summary_matrix.tsv` against the
+1. **Build locally with Docker**: `containers/build.sh build`. Then `lock` and `build` again for a solver-free rebuild. `KV_OWNER` defaults to the owner of `origin` (`ssenci97`).
+2. **Push**: `KV_GITHUB_TOKEN=<PAT write:packages> containers/build.sh ship`. One public package.
+   Claude has no GitHub credentials and must never supply any.
+3. **Pull on Orfeo**: `containers/build.sh orfeo` prints the exact `singularity pull` by digest.
+4. **Commit the generated pins**: `containers/kv.lock.txt`, `containers/images.env`, `configs/refs.sha256`.
+5. **`tools/ALPINE`, `tools/CRISPRLungo` are tracked as gitlinks with no `.gitmodules`.** A fresh clone
+   gives empty directories. Needs `git rm --cached tools/ALPINE tools/CRISPRLungo` (and `tools/CRISPResso2`,
+   now obsolete) — left to the user, it rewrites the index.
+6. **Re-run the pipeline** once containerized and compare `results/summary_matrix.tsv` against the
    2026-11-09 run: ALPINE 0.0/0.0/1.31/0.0/0.35, CRISPRLungo 0.0/0.0/4.23/0.85/7.12,
-   CRISPResso2 0.01/0.03/4.62/1.28/7.86 (Mock/NoDonor/dsDNA/ssDNA/ssCTS). ALPINE's numbers should rise,
+   (Mock/NoDonor/dsDNA/ssDNA/ssCTS). ALPINE's numbers should rise,
    because `truncated_cutoff` moved from 0.95 to 0.80. If they do not, suspect the `map-hifi` bug.
-5. **Open question for the user**: whether to patch ALPINE's `map-hifi` line. It would fix ONT arm checking
+7. **Open question for the user**: whether to patch ALPINE's `map-hifi` line. It would fix ONT arm checking
    but means modifying a tool pinned by commit. Not done; deliberately.
 
 ## The user's acceptance criteria (stated 2026-11-11, second session)
@@ -73,4 +106,5 @@ All three are implemented and tested locally; none has been exercised on Orfeo w
 - Do not re-verify the seqkit fix, the console endpoints, or the re-exec wiring; all were tested.
 - Do not add a compose service for the GUI — the user declined.
 - Do not run the console inside the container; it would lose `sbatch`.
-- Do not push the full image. `build.sh push-full` refuses on purpose.
+- Do not re-add CRISPResso2. The user removed it deliberately on 2026-11-11.
+- Do not commit or echo a GitHub token. `build.sh login` reads `KV_GITHUB_TOKEN` and pipes it to stdin.

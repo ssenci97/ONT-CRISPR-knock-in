@@ -1,28 +1,29 @@
 digraph containers {
   graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="Two images, because one of the three tools may not be redistributed"];
+         label="Build with Docker on a workstation, pull with Singularity on Orfeo.\nOne image, public: both tools may be redistributed."];
   node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
-  edge [color="#6b6862", arrowsize=0.7];
+  edge [color="#6b6862", arrowsize=0.7, fontsize=9, fontname="Helvetica"];
 
-  subgraph cluster_pub {
-    label="publishable: MIT and open-source only"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
-    basefile [label="containers/Dockerfile.base", fillcolor="#fdf2e3"];
-    base [label="ont-knockin-val-base\nconda env (the 15 min solve)\ncwltool, minimap2 2.16\nALPINE (MIT)", fillcolor="#e8f1ee"];
-    ghcr [label="ghcr.io/<owner>/ont-knockin-val-base:<tag>", fillcolor="#e8f1ee"];
-    sif [label="containers/ont-knockin-val.sif\n(apptainer pull on Orfeo)", fillcolor="#e8f1ee"];
+  subgraph cluster_ws {
+    label="workstation: docker"; fontname="Helvetica"; fontsize=10; color="#4a5568"; style=dashed;
+    dfile [label="containers/Dockerfile", fillcolor="#fdf2e3"];
+    img [label="ont-knockin-val\nconda env (the long solve)\ncwltool, minimap2 2.16\nALPINE (MIT)\nCRISPRLungo (AGPL, academic)", fillcolor="#e8f1ee"];
   }
-  subgraph cluster_local {
-    label="local only, never pushed"; fontname="Helvetica"; fontsize=10; color="#9b2c2c"; style=dashed;
-    fullfile [label="containers/Dockerfile", fillcolor="#fdf2e3"];
-    full [label="knockin-val\n+ CRISPRLungo (AGPL, academic)\n+ CRISPResso2 (MGH EULA:\nmay not be distributed)", fillcolor="#f7e9e9"];
+  subgraph cluster_ghcr {
+    label="ghcr.io"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
+    pub [label="ont-knockin-val:tag\nPUBLIC -- no token to pull", fillcolor="#e8f1ee"];
+    dig [label="containers/images.env\nKV_IMAGE_REF=...@sha256:...", fillcolor="#fdf2e3"];
+  }
+  subgraph cluster_orfeo {
+    label="orfeo: no root, no docker, no build"; fontname="Helvetica"; fontsize=10; color="#5a4a8a"; style=dashed;
+    sif [label="containers/ont-knockin-val.sif", fillcolor="#f2eff9"];
+    run [label="any step script\nKV_SIF=... sbatch slurms/06_lungo.sh", fillcolor="#f2eff9"];
   }
 
-  basefile -> base [label="podman build", fontsize=9, fontname="Helvetica"];
-  base -> ghcr [label="podman push", fontsize=9, fontname="Helvetica"];
-  ghcr -> sif [label="apptainer pull", fontsize=9, fontname="Helvetica"];
-  base -> full [label="FROM", fontsize=9, fontname="Helvetica"];
-  fullfile -> full [label="podman build", fontsize=9, fontname="Helvetica"];
-
-  run [label="any step script\nKV_SIF=... sbatch slurms/06_lungo.sh", fillcolor="#f2eff9"];
-  sif -> run; full -> run [label="KV_IMAGE=...", fontsize=9, fontname="Helvetica"];
+  dfile -> img [label="build.sh build"];
+  img -> pub [label="build.sh push"];
+  pub -> dig [label="records digest"];
+  dig -> sif [label="singularity pull\ndocker://...@sha256:<digest>"];
+  sif -> run [label="KV_SIF=..."];
+  img -> run [style=dotted, label="KV_IMAGE=... (workstation)"];
 }

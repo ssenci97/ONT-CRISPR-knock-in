@@ -32,10 +32,5 @@ alpine_local:
 06_lungo:
   lungo_cleavage_pos: 17
   lungo_window: 25
-07_crispresso:
-  crispresso_window_center: -5
-  crispresso_window: 10
-  crispresso_min_bq: 20
-  crispresso_timeout: 47h
-08_summary: {}
+07_summary: {}
 summarize: {}

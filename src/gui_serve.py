@@ -9,12 +9,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARAM_YAML, NAME = f"{ROOT}/configs/param_configs.yaml", "gui_serve"
 GUI, SCHEMA = f"{ROOT}/gui", f"{ROOT}/configs/sample_schema.json"
 SAMPLES_TSV, SAMPLES_DIR = f"{ROOT}/configs/samples.tsv", f"{ROOT}/configs/samples"
-ARRAY_STEPS = ["slurms/03_fetch.sh", "slurms/05_alpine.sh", "slurms/06_lungo.sh", "slurms/07_crispresso.sh"]
+ARRAY_STEPS = ["slurms/03_fetch.sh", "slurms/05_alpine.sh", "slurms/06_lungo.sh"]
 STATIC = {"/": ("submit.html", "text/html"), "/submit.css": ("submit.css", "text/css"), "/submit.js": ("submit.js", "application/javascript")}
 RESULTS, LOGS = f"{ROOT}/results", f"{ROOT}/logs"
 RUN_LOG, RUN_STATE = f"{RESULTS}/run.log", f"{RESULTS}/run_state.json"
 DEFAULT_SIF = f"{ROOT}/containers/ont-knockin-val.sif"
-STEPS = ["01_clone", "02_envs", "03_fetch", "04_build_refs", "05_alpine", "06_lungo", "07_crispresso", "08_summary"]
+STEPS = ["01_clone", "02_envs", "03_fetch", "04_build_refs", "05_alpine", "06_lungo", "07_summary"]
 PARAMS = dict(host="127.0.0.1", port=8000, sync_arrays=1)
 ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
