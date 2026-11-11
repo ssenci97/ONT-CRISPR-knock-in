@@ -34,9 +34,21 @@ The page has three tabs:
 3. **Results** — the knock-in % matrix and, per sample, its full `results/meta/<sample_id>.json`: what the
    wet lab submitted, what each step did, read counts, SLURM job ids, the image and the tool commits.
 
-The console picks up `containers/ont-knockin-val.sif` automatically if it exists, so the jobs it submits run
-inside the image; the header line tells you which runtime it resolved. **Run the console on the host, not
-inside the container** — it needs `sbatch`, which a container cannot reach.
+The console picks up `containers/ont-knockin-val.sif` automatically if it exists, so you do **not** need to
+export `KV_SIF` for it; the header line tells you which runtime it resolved (`runtime apptainer (...)`, or
+`runtime native` if it found no image). **Run the console on the host, not inside the container** — it needs
+`sbatch`, which a container cannot reach.
+
+Two things that trip people up on a cluster. The tunnel must reach **the same login node** the console is
+running on: if `ssh user@orfeo` round-robins between nodes you will forward to the wrong one and get a
+blank page, so note the hostname from the console's shell (`hostname -f`) and `ssh -L 8000:127.0.0.1:8000
+<user>@<that host>`. And if port 8000 is already taken, change it once:
+
+```bash
+python3 src/gui_serve.py --yaml-out      # writes a [gui_serve] block to configs/param_configs.yaml
+vim configs/param_configs.yaml           # set port: 8010
+python3 src/gui_serve.py --yaml-in       # and forward 8010 instead
+```
 
 ## How to run
 ```bash

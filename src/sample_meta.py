@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Single writer of per-sample run metadata: merge one step record into results/meta/<sample_id>.json."""
-import datetime, json, os, subprocess, sys
+import datetime, fcntl, json, os, subprocess, sys
 
 ###################################### constants
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,16 +40,19 @@ def submitted(sample_id):
 def main():
     sample_id, step, *kv = sys.argv[1:]
     os.makedirs(META_DIR, exist_ok=True); p = f"{META_DIR}/{sample_id}.json"
-    d = json.load(open(p)) if os.path.exists(p) else {"sample_id": sample_id, "submitted": submitted(sample_id), "steps": {}}
-    d["submitted"] = d.get("submitted") or submitted(sample_id)
-    d["pipeline_commit"] = git_sha()
-    d["environment"] = environment()
-    rec = {k: scalar(v) for k, v in (x.split("=", 1) for x in kv)}
-    rec["recorded_at"] = f"{datetime.datetime.now():%F %T}"
-    for v in ("SLURM_JOB_ID", "SLURM_ARRAY_TASK_ID"):
-        if os.environ.get(v): rec[v.lower()] = os.environ[v]
-    d["steps"].setdefault(step, {}).update(rec)
-    json.dump(d, open(p, "w"), indent=2, sort_keys=False)
+    with open(f"{p}.lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        d = json.load(open(p)) if os.path.exists(p) else {"sample_id": sample_id, "submitted": submitted(sample_id), "steps": {}}
+        d["submitted"] = d.get("submitted") or submitted(sample_id)
+        d["pipeline_commit"] = git_sha()
+        d["environment"] = environment()
+        rec = {k: scalar(v) for k, v in (x.split("=", 1) for x in kv)}
+        rec["recorded_at"] = f"{datetime.datetime.now():%F %T}"
+        for v in ("SLURM_JOB_ID", "SLURM_ARRAY_TASK_ID"):
+            if os.environ.get(v): rec[v.lower()] = os.environ[v]
+        d["steps"].setdefault(step, {}).update(rec)
+        json.dump(d, open(f"{p}.tmp", "w"), indent=2, sort_keys=False)
+        os.replace(f"{p}.tmp", p)
 
 if __name__ == "__main__":
     main()
