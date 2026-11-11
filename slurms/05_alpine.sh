@@ -27,7 +27,7 @@ for sample_id in $(kv_samples); do
   o="$RESULTS/ALPINE/$sample_id"; rm -rf "${o:?}"; mkdir -p "$o"
   printf 'fastqfile: {class: File, path: %s}\nreffile: {class: File, path: %s}\nconfig: {class: File, path: %s}\nsample_name: "%s"\nprimer_1: "%s"\nprimer_2: "%s"\nprimer_check_length: %s\ndata_type: %s\ntruncated_cutoff: %s\nfive_prime_HA_seq: "%s"\nthree_prime_HA_seq: "%s"\n' \
     "$DATA/$sample_id.fastq.gz" "$REFS/alpine/ref.fa" "$REFS/alpine/config.tsv" "$sample_id" "$pf" "$pr" "$alpine_primer_check_length" "$alpine_data_type" "$ki_min_insert_frac" "$lha" "$rha" > "$o/job.yaml"
-  kv_meta "$sample_id" "$NAME" primer_check_length="$alpine_primer_check_length" data_type="$alpine_data_type" truncated_cutoff="$ki_min_insert_frac"
+  kv_meta "$sample_id" "$NAME" primer_check_length="$alpine_primer_check_length" data_type="$alpine_data_type" truncated_cutoff="$ki_min_insert_frac" minimap2_preset_patched="$([ "$alpine_data_type" = nanopore ] && echo map-ont || echo none)"
   kv_log "ALPINE $sample_id"
   kv_time "$o/time.log" bash "$KV_ROOT/src/alpine_local.sh" "$o/job.yaml" "$o" "${KV_YFLAGS[@]}" > "$o/run.log" 2>&1 || { kv_log "!! $sample_id failed (see $o/run.log)"; rc=1; }
 done

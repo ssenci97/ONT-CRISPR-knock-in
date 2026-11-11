@@ -176,10 +176,13 @@ The two knock-in percentages are not interchangeable, and ALPINE is the stricter
 `shared.ki_min_insert_frac` (default 0.80) drives both, so they answer the same question.
 The `metric` column of `results/summary.tsv` states the rule used for each row.
 
-**Known upstream issue.** ALPINE validates the homology arms with `minimap2 -ax map-hifi`, hardcoded in
-`DockerFile/classify/utils/data_utils.py`, even when `data_type: nanopore`. On ONT reads the wrong preset
-makes genuine HDR reads fail the arm check and be downgraded, so ALPINE under-reports knock-in here.
-`alpine_data_type` does not reach that call.
+**Known upstream issue, patched here.** ALPINE validates the homology arms with `minimap2 -ax map-hifi`,
+hardcoded in two helpers (`classify/utils/data_utils.py:89` and `classify/utils/realign_ins_to_wildtype.py:12`)
+that never receive `data_type`, even when `data_type: nanopore` — although ALPINE's own `classify_read.py`
+selects the preset correctly in four other places. On ONT reads the HiFi preset makes genuine HDR reads fail
+the arm check, so ALPINE under-reported knock-in. `src/alpine_local.sh` now patches those two lines to
+`-ax map-ont` in a per-run copy of the tool; **the pinned clone is never touched**, and the patch is
+recorded per sample as `minimap2_preset_patched`. See [ALPINE](docs/manuals/ALPINE.md).
 
 **Two caveats on the denominators.** First, `06_lungo` passes `--control <the control sample>` to every
 sample *including the control itself*, so CRISPRLungo's value for the control is ~0 by construction and is

@@ -66,9 +66,17 @@ Two gates, one deliberate and one a bug, verified by reading `b59121d`:
    align to **both** arms over `ha_match_ratio` of each arm's length. That alignment is
    `minimap2 -ax map-hifi`, **hardcoded** in `utils/data_utils.py:89`, regardless of `data_type`. On ONT
    reads the HiFi preset yields shorter, sparser alignments, so genuine HDR reads miss the threshold and
-   are downgraded. `alpine_data_type: nanopore` never reaches this call. Not patched here — patching it
-   means editing the cloned tool, which would break the pinned-commit guarantee. The fix upstream is one
-   word; `ha_match_ratio` can be lowered as a workaround, at the cost of specificity.
+   are downgraded. `alpine_data_type: nanopore` never reaches these calls.
+
+   **Patched since 2026-11-11.** ALPINE itself gets this right in `classify_read.py` (four call sites use
+   `preset = "map-ont" if data_type == "nanopore" else "map-hifi"`); only two helpers hardcode it:
+   `classify/utils/data_utils.py:89` and `classify/utils/realign_ins_to_wildtype.py:12`.
+   `src/alpine_local.sh` now copies the whole `DockerFile/` tree into `results/ALPINE/<sample>/cwl_local/`
+   and rewrites `-ax map-hifi` to `-ax map-ont` there when `data_type: nanopore`, exactly as the tool's own
+   code would. **The clone at the pinned commit is never modified**, so `01_clone`'s SHA check and the
+   commit recorded in `results/meta/<sample>.json` stay valid; the patch is applied to a per-run copy and
+   recorded as `minimap2_preset_patched` in that same metadata. Set `alpine_data_type` to anything but
+   `nanopore` and no patching happens.
 
 `find_true_hdr_reads` additionally skips reads carrying an `SA` tag, so a chimeric alignment to a homology
 arm also costs the HDR call.

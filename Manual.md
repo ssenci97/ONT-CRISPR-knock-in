@@ -25,7 +25,7 @@ The repository holds only scripts, envs, configs and docs. Everything else is cr
 ```
 configs/   samples.tsv · samples/<sample_id>.json (submitted metadata) · sample_schema.json
            tools.tsv (repo, pinned commit) · param_configs.yaml · refs.sha256 (pin)
-envs/      kv.yml (single env for all steps)
+envs/      kv.yml (the only env; the image ships it pre-built)
 slurms/    analysis_env.sh (shared library) · 01_clone · 02_envs · 03_fetch · 04_build_refs
            05_alpine · 06_lungo · 07_summary · run_all.sh
 src/       build_refs.py · summarize.py · alpine_local.sh · sample_meta.py · gui_serve.py · diagrams.sh
@@ -137,7 +137,7 @@ rather than the largest single block, so CRISPRLungo's figures will rise on the 
 | CRISPRLungo: 0 desired edits, "induced mutation outside the analysis window" | the PAM-blocking mutation at +20 bp; `--window 25` |
 | CRISPRLungo: `Induce_type` is `X` for every read | expected for a 2-kb insert with ONT errors; the KI % uses integration matching instead |
 | CRISPRLungo `--large_induced_insertion` crashes | two upstream bugs in that code path; not used here |
-| ALPINE reports far less knock-in than CRISPRLungo | by design plus a bug. It needs the insert to reach `truncated_cutoff` (now `ki_min_insert_frac`, was 0.95 on nanopore) **and** both homology arms to align. The arm check runs `minimap2 -ax map-hifi` hardcoded in `DockerFile/classify/utils/data_utils.py`, ignoring `data_type: nanopore`, so true HDR reads fail it on ONT data. Not yet patched. |
+| ALPINE reports far less knock-in than CRISPRLungo | by design plus a bug, now patched. It needs the insert to reach `truncated_cutoff` (now `ki_min_insert_frac`, was 0.95 on nanopore) **and** both homology arms to align. The arm check ran `minimap2 -ax map-hifi` hardcoded in two helpers that never see `data_type: nanopore`. Since 2026-11-11 `src/alpine_local.sh` rewrites those to `-ax map-ont` in a per-run copy; the pinned clone is untouched. Expect ALPINE's numbers to rise relative to runs before that date. |
 | podman: `Failed to obtain podman configuration: lstat /run/user/<uid>` | no systemd user session on that node. `containers/build.sh` and `analysis_env.sh` now fall back to `$TMPDIR/podman-$(id -u)`; set `XDG_RUNTIME_DIR` yourself if you call podman directly |
 | podman: `newuidmap: write to uid_map failed` or "cannot find UID in /etc/subuid" | rootless podman needs a subuid/subgid range for your account; only a cluster admin can add it. Not needed any more: the image is built with Docker on a workstation and pulled on the cluster with `singularity pull`, which needs neither. |
 | Containerized `sbatch` job: "No such file or directory" on the script | SLURM runs a copy from its spool dir, which is not bind-mounted; `analysis_env.sh` copies it into `logs/` first. If you see this, your `KV_BIND` does not cover `$KV_ROOT`. |
