@@ -17,6 +17,7 @@ if [ "$preset" != map-hifi ]; then
     [ -f "$f" ] && grep -q -- "-ax map-hifi" "$f" && { sed -i "s/-ax map-hifi/-ax $preset/g" "$f"; patched=$((patched + 1)); }
   done
 fi
+printf '%s\t%s\n' "$preset" "$patched" > "$OUT/minimap2_patch.tsv"
 kv_log "ALPINE data_type=$data_type preset=$preset; patched $patched hardcoded minimap2 call(s) in the local copy"
 grep -rn -- "-ax map-hifi" "$D" >/dev/null 2>&1 && kv_log "!! map-hifi still present in $D after patching"
 for f in "$WORK"/*.cwl "$WORK"/*/*.cwl; do

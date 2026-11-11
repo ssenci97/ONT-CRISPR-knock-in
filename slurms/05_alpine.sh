@@ -27,9 +27,16 @@ for sample_id in $(kv_samples); do
   o="$RESULTS/ALPINE/$sample_id"; rm -rf "${o:?}"; mkdir -p "$o"
   printf 'fastqfile: {class: File, path: %s}\nreffile: {class: File, path: %s}\nconfig: {class: File, path: %s}\nsample_name: "%s"\nprimer_1: "%s"\nprimer_2: "%s"\nprimer_check_length: %s\ndata_type: %s\ntruncated_cutoff: %s\nfive_prime_HA_seq: "%s"\nthree_prime_HA_seq: "%s"\n' \
     "$DATA/$sample_id.fastq.gz" "$REFS/alpine/ref.fa" "$REFS/alpine/config.tsv" "$sample_id" "$pf" "$pr" "$alpine_primer_check_length" "$alpine_data_type" "$ki_min_insert_frac" "$lha" "$rha" > "$o/job.yaml"
-  kv_meta "$sample_id" "$NAME" primer_check_length="$alpine_primer_check_length" data_type="$alpine_data_type" truncated_cutoff="$ki_min_insert_frac" minimap2_preset_patched="$([ "$alpine_data_type" = nanopore ] && echo map-ont || echo none)"
+  kv_meta "$sample_id" "$NAME" primer_check_length="$alpine_primer_check_length" data_type="$alpine_data_type" truncated_cutoff="$ki_min_insert_frac"
   kv_log "ALPINE $sample_id"
   kv_time "$o/time.log" bash "$KV_ROOT/src/alpine_local.sh" "$o/job.yaml" "$o" "${KV_YFLAGS[@]}" > "$o/run.log" 2>&1 || { kv_log "!! $sample_id failed (see $o/run.log)"; rc=1; }
+  if [ -s "$o/minimap2_patch.tsv" ]; then
+    read -r preset patched < "$o/minimap2_patch.tsv"
+    [ "$preset" = map-hifi ] || [ "$patched" -gt 0 ] || kv_log "!! $sample_id: wanted preset $preset but patched 0 call(s); ALPINE ran on map-hifi"
+    kv_meta "$sample_id" "$NAME" minimap2_preset="$preset" minimap2_calls_patched="$patched"
+  else
+    kv_log "!! $sample_id: no minimap2_patch.tsv; cannot record which preset ALPINE used"
+  fi
 done
 kv_footer
 exit $rc
