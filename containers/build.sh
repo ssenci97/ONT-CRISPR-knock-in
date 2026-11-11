@@ -23,7 +23,7 @@ pinned() { local c; c=$(commit_of "$1"); [[ "$c" =~ ^[0-9a-f]{40}$ ]] || { log "
 repo_of() { awk -F'\t' -v n="$1" 'NR>1 && $1==n{print $2}' configs/tools.tsv; }
 ###################################### engine
 MODE="${1:-build}"
-if [ "$MODE" = orfeo ]; then
+if [ "$MODE" = orfeo ] || [ "$MODE" = pull ]; then
   orfeo_only=1
 else
   orfeo_only=0
@@ -74,6 +74,27 @@ push_image() {
   log "wrote $digests: ${image%:*}@$d -- commit it"
 }
 ###################################### orfeo
+pull() {
+  local app ref
+  app="${KV_APPTAINER:-$(command -v singularity || command -v apptainer || true)}"
+  [ -n "$app" ] || { log "neither singularity nor apptainer is on PATH -- are you on the cluster?"; exit 1; }
+  ref="$image"
+  if [ -s "$digests" ]; then ref="$(sed -n 's/^KV_IMAGE_REF=//p' "$digests" | tail -1)"
+  else log "!! $digests missing: pulling by tag, not by digest"; fi
+  export SINGULARITY_CACHEDIR="${SINGULARITY_CACHEDIR:-$KV_ROOT/.singularity}"
+  export APPTAINER_CACHEDIR="$SINGULARITY_CACHEDIR"
+  export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-$SINGULARITY_CACHEDIR/tmp}"
+  export APPTAINER_TMPDIR="$SINGULARITY_TMPDIR"
+  mkdir -p "$SINGULARITY_TMPDIR"
+  local avail; avail=$(df -Pk "$KV_ROOT" | awk 'NR==2{print int($4/1048576)}')
+  log "pulling $ref"
+  log "into $KV_ROOT/$sif (cache $SINGULARITY_CACHEDIR, ${avail} GB free here)"
+  [ "$avail" -lt 12 ] && log "!! only ${avail} GB free; the pull needs about 11 GB (cache + sif)"
+  "$app" pull --force "$KV_ROOT/$sif" "docker://$ref"
+  [ -s "$KV_ROOT/$sif" ] || { log "pull reported success but $sif is missing or empty"; exit 1; }
+  log "ok: $(du -h "$KV_ROOT/$sif" | cut -f1) at $KV_ROOT/$sif"
+  log "now run:  export KV_SIF=$KV_ROOT/$sif && bash slurms/run_all.sh --sbatch"
+}
 orfeo() {
   local ref="$image"
   [ -s "$digests" ] && ref="$(sed -n 's/^KV_IMAGE_REF=//p' "$digests" | tail -1)"
@@ -90,11 +111,12 @@ EOS
 ###################################### dispatch
 case "$MODE" in
   build|all) build_image ;;
+  pull)      pull ;;
   lock)      write_lock ;;
   login)     do_login ;;
   push)      push_image ;;
   ship)      do_login; push_image; orfeo ;;
   orfeo)     orfeo ;;
-  *) log "usage: build.sh [build|all|lock|login|push|ship|orfeo]"; exit 1 ;;
+  *) log "usage: build.sh [build|all|lock|login|push|ship|pull|orfeo]"; exit 1 ;;
 esac
 footer

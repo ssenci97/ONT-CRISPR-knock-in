@@ -13,7 +13,7 @@ Scope: Oxford Nanopore sequencing of CRISPR knock-in PCR amplicons. Only tools w
 Three steps on Orfeo, none of which need a shell after the first:
 
 ```bash
-containers/build.sh orfeo               # 1. prints the singularity pull; run it once
+containers/build.sh pull                # 1. fetch the image once (~5 GB)
 python3 src/gui_serve.py                # 2. start the console on the login node
 ssh -L 8000:127.0.0.1:8000 <user>@orfeo # from your laptop, then open http://127.0.0.1:8000/
 ```
@@ -76,16 +76,18 @@ Commits come from `configs/tools.tsv` and the build refuses to start if any is n
 ### On Orfeo (Singularity)
 
 ```bash
-containers/build.sh orfeo                               # prints exactly these lines, filled in
-```
-```bash
-export SINGULARITY_CACHEDIR=$PWD/.singularity
-singularity pull --force containers/ont-knockin-val.sif docker://ghcr.io/<owner>/ont-knockin-val@sha256:<digest>
-
+cd <the repo root>                 # the pull writes a path relative to it
+containers/build.sh pull           # downloads and converts; verifies the .sif exists
 export KV_SIF=$PWD/containers/ont-knockin-val.sif
-bash slurms/run_all.sh --sbatch                         # or start the console and press the button
+bash slurms/run_all.sh --sbatch    # or start the console and press the button
 ```
-Pull **by digest**, from `containers/images.env`, not by tag.
+`pull` reads the digest from `containers/images.env`, puts the cache and temp dir under `.singularity/`,
+warns if the filesystem has under 12 GB free, and fails loudly if the `.sif` is missing afterwards. No
+credentials: the package is public. `containers/build.sh orfeo` prints the same commands without running
+them, if you would rather paste them yourself.
+
+`run_all.sh` refuses to submit when `KV_SIF` points at a file that is not there, and warns when
+`#SBATCH --array=1-N` disagrees with the number of rows in `configs/samples.tsv`.
 
 `slurms/analysis_env.sh` re-executes each step script inside the container with a whitelisted environment
 (`--cleanenv --no-home` under apptainer, so a `module load` or a stray `~/.condarc` on the host cannot
