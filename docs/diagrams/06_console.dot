@@ -1,24 +1,21 @@
 digraph console {
-  graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="What a wet-lab user does on Orfeo: three clicks, no shell"];
-  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
-  edge [color="#6b6862", arrowsize=0.7];
+  graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.5,
+         label="What a wet-lab user does on the SLURM HPC cluster:\nthree tabs, no shell\n "];
+  node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
+  edge [color="#48484a", arrowsize=1.0, penwidth=1.4];
 
-  build [label="containers/build.sh orfeo\n(once: singularity pull, no root)", fillcolor="#fdf2e3"];
-  sif [label="containers/ont-knockin-val.sif", fillcolor="#e8f1ee"];
-  build -> sif;
-
-  serve [label="python3 src/gui_serve.py\non the login node", fillcolor="#fdf2e3"];
+  build [label="containers/build.sh pull\nonce, no root", fillcolor="#fff1d6"];
+  serve [label="python3 src/gui_serve.py\non the login node", fillcolor="#fff1d6"];
   subgraph cluster_gui {
-    label="http://127.0.0.1:8000 (ssh -L tunnel)"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
-    t1 [label="1. Samples\nform -> samples.tsv\n+ samples/<id>.json", fillcolor="#f2eff9"];
-    t2 [label="2. Run\n[Run default pipeline]", fillcolor="#f2eff9"];
-    t3 [label="3. Results\nKI% matrix + per-sample\nmetadata", fillcolor="#f2eff9"];
+    label="http://127.0.0.1:8000 through an ssh tunnel"; fontname="Helvetica"; fontsize=19; color="#1f5f4f"; style=dashed;
+    t1 [label="1. Samples\nlocal FASTQ or SRA", fillcolor="#ece8f7"];
+    t2 [label="2. Run\nRun on SLURM, live progress", fillcolor="#ece8f7"];
+    t3 [label="3. Results\nKI % matrix, metadata", fillcolor="#ece8f7"];
   }
-  serve -> t1 [style=dotted]; t1 -> t2 -> t3;
+  sb [label="snakemake --profile profiles/slurm\nsbatch through get_best_node", fillcolor="#f2f2f7"];
+  sif [label="every rule runs inside\ncontainers/ont-knockin-val.sif", fillcolor="#dff2ea"];
+  out [label="results/<name>/summary_matrix.tsv\nresults/<name>/meta/<id>.json", fillcolor="#1f5f4f", fontcolor="white", penwidth=0];
 
-  sb [label="snakemake --profile profiles/slurm\n--config analysis=<name>", fillcolor="#f6f5f2"];
-  steps [label="every rule runs\ninside the .sif", fillcolor="#f6f5f2"];
-  out [label="results/<name>/summary_matrix.tsv\nresults/<name>/meta/<id>.json", fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
-  t2 -> sb -> steps -> out; sif -> steps [style=dotted]; out -> t3 [constraint=false];
+  build -> serve -> t1; t1 -> t2 -> t3;
+  t2 -> sb -> sif -> out; out -> t3 [constraint=false, style=dashed];
 }

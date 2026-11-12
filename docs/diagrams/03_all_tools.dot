@@ -1,31 +1,26 @@
 digraph all_tools {
-  graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="Whole analysis:  snakemake --profile profiles/slurm --config analysis=<name>   (same inputs, same files, two readers)"];
-  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
-  edge [color="#6b6862", arrowsize=0.7];
+  graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.55,
+         label="Whole analysis\nsnakemake --profile profiles/slurm --config analysis=<name>\nsame inputs, same files, two readers\n "];
+  node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
+  edge [color="#48484a", arrowsize=1.0, penwidth=1.4, fontname="Helvetica", fontsize=16];
 
-  c1 [label="src/analysis.py <name>\nfreezes results/<name>/inputs/", fillcolor="#fdf2e3"];
-  c3 [label="rules ena, download, filter", fillcolor="#f6f5f2"];
-  c4 [label="rule refs", fillcolor="#f6f5f2"];
-  c1 -> c3 -> c4 [label="file dependency", fontsize=9, fontname="Helvetica"];
+  c1 [label="src/analysis.py <name>\nfreezes results/<name>/inputs/", fillcolor="#fff1d6"];
+  c3 [label="01_fetch\nena, download, filter", fillcolor="#f2f2f7"];
+  c4 [label="02_refs\nrefs", fillcolor="#f2f2f7"];
+  c1 -> c3; c1 -> c4;
 
   subgraph cluster_in {
-    label="read from disk, unchanged"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
-    fastq  [label="data/<sample_id>.fastq.gz", fillcolor="#e8f1ee"];
-    refs   [label="refs/TRAC_WT.fa\nrefs/TRAC_KI.fa\nrefs/CAR_insert.fa", fillcolor="#e8f1ee"];
-    design [label="refs/design.json", fillcolor="#e8f1ee"];
-    sheet  [label="configs/samples.tsv", fillcolor="#fdf2e3"];
-    yaml   [label="configs/param_configs.yaml", fillcolor="#fdf2e3"];
+    label="read from disk, unchanged"; fontname="Helvetica"; fontsize=19; color="#1f5f4f"; style=dashed;
+    fastq  [label="data/<sample_id>.fastq.gz", fillcolor="#dff2ea"];
+    refs   [label="refs/*.fa\nrefs/design.json", fillcolor="#dff2ea"];
+    frozen [label="inputs/samples.tsv\ninputs/params.yaml", fillcolor="#fff1d6"];
   }
-  c3 -> fastq; c4 -> refs; c4 -> design;
+  c3 -> fastq; c4 -> refs; c1 -> frozen;
 
-  contract [label="one input set", shape=box, style=filled, fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
-  fastq -> contract; refs -> contract; design -> contract; sheet -> contract; yaml -> contract;
+  a [label="03_alpine\none job per sample", fillcolor="#ece8f7"];
+  l [label="04_lungo\none job per sample", fillcolor="#ece8f7"];
+  fastq -> a; refs -> a; frozen -> a; fastq -> l; refs -> l; frozen -> l;
 
-  a [label="rule alpine\none job per sample", fillcolor="#f2eff9"];
-  l [label="rule lungo\none job per sample", fillcolor="#f2eff9"];
-  contract -> a; contract -> l;
-
-  s [label="rule summary\nresults/<name>/summary_matrix.tsv", fillcolor="#f6f5f2"];
-  a -> s; l -> s [label="file dependency", fontsize=9, fontname="Helvetica"];
+  s [label="05_summary\nresults/<name>/summary_matrix.tsv", fillcolor="#1f5f4f", fontcolor="white", penwidth=0];
+  a -> s; l -> s;
 }

@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1020" viewBox="0 0 960 1020" font-family="Helvetica, Arial, sans-serif" fill="#1d1d1f">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1d1d1f"/></marker>
+    <pattern id="miss" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="10" height="10" fill="#fff"/><rect width="4" height="10" fill="#f3d9ac"/></pattern>
+  </defs>
+  <rect width="960" height="1020" fill="#fff"/>
+
+  <text x="30" y="42" font-size="26" font-weight="700">What a knock-in is, and how it is measured</text>
+  <text x="30" y="74" font-size="17" fill="#4f4f54">The target region is amplified by PCR and every molecule is read end to end by Oxford Nanopore. Drawn to scale.</text>
+
+  <g font-size="16">
+    <rect x="30" y="100" width="26" height="18" rx="3" fill="#bdbdbd"/><text x="64" y="114">genome</text>
+    <rect x="140" y="100" width="26" height="18" rx="3" fill="#0072b2"/><text x="174" y="114">homology arm (305 bp)</text>
+    <rect x="360" y="100" width="26" height="18" rx="3" fill="#e69f00"/><text x="394" y="114">inserted gene: CAR (2,011 bp)</text>
+    <path d="M620 109h26" stroke="#1d1d1f" stroke-width="2.5" marker-end="url(#arr)"/><text x="654" y="114">PCR primer</text>
+    <path d="M760 100l10 18M770 100l-10 18" stroke="#d55e00" stroke-width="3"/><text x="782" y="114">Cas cut site</text>
+  </g>
+
+  <text x="30" y="178" font-size="19" font-weight="700">1. Control cell (Ctrl, not edited) → amplicon of 4.4 kb</text>
+  <g transform="translate(60,196)">
+    <rect x="0" y="0" width="259" height="36" rx="4" fill="#bdbdbd"/>
+    <rect x="259" y="0" width="40" height="36" fill="#0072b2"/>
+    <rect x="299" y="0" width="40" height="36" fill="#0072b2"/>
+    <rect x="339" y="0" width="228" height="36" rx="4" fill="#bdbdbd"/>
+    <path d="M294 -8l10 52M304 -8l-10 52" stroke="#d55e00" stroke-width="3.5"/>
+    <path d="M-30 18h26" stroke="#1d1d1f" stroke-width="2.5" marker-end="url(#arr)"/>
+    <path d="M597 18h-26" stroke="#1d1d1f" stroke-width="2.5" marker-end="url(#arr)"/>
+  </g>
+
+  <text x="30" y="296" font-size="19" font-weight="700">2. Successful knock-in → the CAR gene sits between the two arms; amplicon of 6.4 kb</text>
+  <g transform="translate(60,314)">
+    <rect x="0" y="0" width="259" height="36" rx="4" fill="#bdbdbd"/>
+    <rect x="259" y="0" width="40" height="36" fill="#0072b2"/>
+    <rect x="299" y="0" width="261" height="36" fill="#e69f00"/>
+    <text x="429" y="24" font-size="17" font-weight="700" fill="#1d1d1f" text-anchor="middle">CAR insert</text>
+    <rect x="560" y="0" width="40" height="36" fill="#0072b2"/>
+    <rect x="600" y="0" width="228" height="36" rx="4" fill="#bdbdbd"/>
+    <path d="M-30 18h26" stroke="#1d1d1f" stroke-width="2.5" marker-end="url(#arr)"/>
+    <path d="M858 18h-26" stroke="#1d1d1f" stroke-width="2.5" marker-end="url(#arr)"/>
+  </g>
+
+  <path d="M30 400h900" stroke="#1d1d1f" stroke-width="2.5"/>
+
+  <text x="30" y="440" font-size="19" font-weight="700">3. How each read is scored, and what else is reported</text>
+
+  <g transform="translate(60,462)">
+    <rect x="0" y="0" width="259" height="28" rx="4" fill="#bdbdbd"/>
+    <rect x="259" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="299" y="0" width="261" height="28" fill="#e69f00"/>
+    <rect x="560" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="600" y="0" width="228" height="28" rx="4" fill="#bdbdbd"/>
+    <text x="0" y="54" font-size="17"><tspan font-weight="700">✓ counted as knock-in</tspan> · at least 80 % of the insert is present, both arms intact</text>
+  </g>
+
+  <g transform="translate(60,556)">
+    <rect x="0" y="0" width="259" height="28" rx="4" fill="#bdbdbd"/>
+    <rect x="259" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="299" y="0" width="105" height="28" fill="#e69f00"/>
+    <rect x="404" y="1" width="155" height="26" fill="url(#miss)" stroke="#e69f00" stroke-width="2" stroke-dasharray="6 4"/>
+    <rect x="560" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="600" y="0" width="228" height="28" rx="4" fill="#bdbdbd"/>
+    <text x="0" y="54" font-size="17"><tspan font-weight="700">✗ partial insert</tspan> · at least 80 % of the insert is required, so this read is not a knock-in</text>
+    <text x="0" y="78" font-size="16" fill="#4f4f54">reported separately as <tspan font-family="monospace">partial_reads</tspan> / <tspan font-family="monospace">partial_pct</tspan> in summary.tsv</text>
+  </g>
+
+  <g transform="translate(60,674)">
+    <rect x="0" y="0" width="259" height="28" rx="4" fill="#bdbdbd"/>
+    <rect x="259" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="299" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="339" y="0" width="228" height="28" rx="4" fill="#bdbdbd"/>
+    <rect x="293" y="-4" width="12" height="36" fill="#d55e00"/>
+    <text x="0" y="54" font-size="17"><tspan font-weight="700">✗ small insertion or deletion at the cut</tspan> · edited, but no insert</text>
+    <text x="0" y="78" font-size="16" fill="#4f4f54">counted as its own class (<tspan font-family="monospace">DEL-small</tspan>, <tspan font-family="monospace">Del</tspan>, …) in the <tspan font-family="monospace">notes</tspan> column</text>
+  </g>
+
+  <g transform="translate(60,792)">
+    <rect x="0" y="0" width="259" height="28" rx="4" fill="#bdbdbd"/>
+    <rect x="259" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="299" y="0" width="40" height="28" fill="#0072b2"/>
+    <rect x="339" y="0" width="228" height="28" rx="4" fill="#bdbdbd"/>
+    <text x="0" y="54" font-size="17"><tspan font-weight="700">✗ unedited</tspan> · identical to the control; a separate class again (<tspan font-family="monospace">Unmodified</tspan>, <tspan font-family="monospace">WT</tspan>)</text>
+  </g>
+
+  <rect x="30" y="880" width="900" height="118" rx="10" fill="#f2f2f7"/>
+  <text x="50" y="915" font-size="20" font-weight="700">Knock-in % = knock-in reads ÷ all reads that pass the length filter (3.5–7.5 kb)</text>
+  <text x="50" y="946" font-size="17" fill="#4f4f54">ALPINE and CRISPRLungo score the same reads independently.</text>
+  <text x="50" y="972" font-size="17" fill="#4f4f54">Both need ≥ 80 % of the insert (<tspan font-family="monospace">ki_min_insert_frac</tspan>); ALPINE also checks both homology arms.</text>
+</svg>

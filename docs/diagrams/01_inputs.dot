@@ -1,37 +1,38 @@
 digraph inputs {
-  graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="The per-sample input contract: the same inputs, handed to each tool under its own flag"];
-  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
-  edge [color="#6b6862", arrowsize=0.7];
+  graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.4, compound=true,
+         label="The per-sample inputs, handed to each tool under its own argument\n "];
+  node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
+  edge [color="#48484a", arrowsize=1.0, penwidth=1.4];
 
-  subgraph cluster_made {
-    label="built once by steps 01-04"; fontname="Helvetica"; fontsize=10; color="#c9c4bb"; style=dashed;
-    fastq  [label="data/<sample_id>.fastq.gz\n(length-filtered reads)", fillcolor="#e8f1ee"];
-    refs   [label="refs/TRAC_WT.fa\nrefs/TRAC_KI.fa\nrefs/CAR_insert.fa", fillcolor="#e8f1ee"];
-    design [label="refs/design.json\n(guide, cut site, primers,\nhomology arms, insert length)", fillcolor="#e8f1ee"];
-    alpcfg [label="refs/alpine/ref.fa\nrefs/alpine/config.tsv", fillcolor="#e8f1ee"];
-  }
   subgraph cluster_user {
-    label="submitted by you"; fontname="Helvetica"; fontsize=10; color="#c9c4bb"; style=dashed;
-    sheet [label="configs/samples.tsv\n(sample_id, srr, condition, control)", fillcolor="#fdf2e3"];
-    yaml  [label="configs/param_configs.yaml\n(shared + per-step parameters)", fillcolor="#fdf2e3"];
+    label="submitted by you"; fontname="Helvetica"; fontsize=19; color="#8e8e93"; style=dashed;
+    sheet [label=<configs/samples<B>.tsv</B><BR/>sample_id, fastq_path or srr,<BR/>condition, control>, fillcolor="#fff1d6"];
+    yaml  [label=<configs/param_configs<B>.yaml</B><BR/>shared + per-step parameters>, fillcolor="#fff1d6"];
+  }
+  subgraph cluster_made {
+    label="built by 01_fetch and 02_refs"; fontname="Helvetica"; fontsize=19; color="#8e8e93"; style=dashed;
+    fastq  [label=<data/&lt;sample_id&gt;<B>.fastq.gz</B><BR/>length-filtered reads>, fillcolor="#dff2ea"];
+    refs   [label=<refs/TRAC_WT<B>.fa</B><BR/>refs/TRAC_KI<B>.fa</B><BR/>refs/CAR_insert<B>.fa</B>>, fillcolor="#dff2ea"];
+    design [label=<refs/design<B>.json</B><BR/>guide, cut site, primers,<BR/>homology arms, insert length>, fillcolor="#dff2ea"];
+    alpcfg [label=<refs/alpine/ref<B>.fa</B><BR/>refs/alpine/config<B>.tsv</B>>, fillcolor="#dff2ea"];
   }
 
-  table [shape=plaintext, label=<
-    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5">
-      <TR><TD BGCOLOR="#1f6f5c"><FONT COLOR="white" POINT-SIZE="10"><B>input</B></FONT></TD>
-          <TD BGCOLOR="#1f6f5c"><FONT COLOR="white" POINT-SIZE="10"><B>ALPINE</B></FONT></TD>
-          <TD BGCOLOR="#1f6f5c"><FONT COLOR="white" POINT-SIZE="10"><B>CRISPRLungo</B></FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">reads</FONT></TD><TD><FONT POINT-SIZE="9">fastqfile</FONT></TD><TD><FONT POINT-SIZE="9">positional</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">WT amplicon</FONT></TD><TD><FONT POINT-SIZE="9">reffile (WT_TRAC)</FONT></TD><TD><FONT POINT-SIZE="9">positional</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">KI amplicon</FONT></TD><TD><FONT POINT-SIZE="9">reffile (Ref_HDR_CD19)</FONT></TD><TD><FONT POINT-SIZE="9">--induced_sequence_path</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">CAR insert</FONT></TD><TD><FONT POINT-SIZE="9">config.tsv gene_start/end</FONT></TD><TD><FONT POINT-SIZE="9">--integration_file</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">guide</FONT></TD><TD><FONT POINT-SIZE="9">cut site in config.tsv</FONT></TD><TD><FONT POINT-SIZE="9">positional + --cleavage_pos</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">primers</FONT></TD><TD><FONT POINT-SIZE="9">primer_1 / primer_2</FONT></TD><TD><FONT POINT-SIZE="9">not used</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">homology arms</FONT></TD><TD><FONT POINT-SIZE="9">five/three_prime_HA_seq</FONT></TD><TD><FONT POINT-SIZE="9">not used</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">KI threshold</FONT></TD><TD><FONT POINT-SIZE="9">truncated_cutoff</FONT></TD><TD><FONT POINT-SIZE="9">applied in rule summary</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9">control sample</FONT></TD><TD><FONT POINT-SIZE="9">not used</FONT></TD><TD><FONT POINT-SIZE="9">--control</FONT></TD></TR>
+  table [shape=plaintext, style="", label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="8" COLOR="#8e8e93">
+      <TR><TD BGCOLOR="#1f5f4f"><FONT COLOR="white" POINT-SIZE="19"><B>input</B></FONT></TD>
+          <TD BGCOLOR="#1f5f4f"><FONT COLOR="white" POINT-SIZE="19"><B>ALPINE</B></FONT></TD>
+          <TD BGCOLOR="#1f5f4f"><FONT COLOR="white" POINT-SIZE="19"><B>CRISPRLungo</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>reads</B></FONT></TD><TD><FONT POINT-SIZE="18">fastqfile</FONT></TD><TD><FONT POINT-SIZE="18">positional</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>WT amplicon</B></FONT></TD><TD><FONT POINT-SIZE="18">reffile (WT_TRAC)</FONT></TD><TD><FONT POINT-SIZE="18">positional</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>KI amplicon</B></FONT></TD><TD><FONT POINT-SIZE="18">reffile (Ref_HDR_CD19)</FONT></TD><TD><FONT POINT-SIZE="18">--induced_sequence_path</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>CAR insert</B></FONT></TD><TD><FONT POINT-SIZE="18">config.tsv gene_start/end</FONT></TD><TD><FONT POINT-SIZE="18">--integration_file</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>guide</B></FONT></TD><TD><FONT POINT-SIZE="18">cut site in config.tsv</FONT></TD><TD><FONT POINT-SIZE="18">positional + --cleavage_pos</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>primers</B></FONT></TD><TD><FONT POINT-SIZE="18">primer_1 / primer_2</FONT></TD><TD><FONT POINT-SIZE="18">not used</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>homology arms</B></FONT></TD><TD><FONT POINT-SIZE="18">five/three_prime_HA_seq</FONT></TD><TD><FONT POINT-SIZE="18">not used</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>KI threshold</B></FONT></TD><TD><FONT POINT-SIZE="18">truncated_cutoff</FONT></TD><TD><FONT POINT-SIZE="18">applied in 05_summary</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>control sample</B></FONT></TD><TD><FONT POINT-SIZE="18">not used</FONT></TD><TD><FONT POINT-SIZE="18">--control</FONT></TD></TR>
     </TABLE>>];
 
-  fastq -> table; refs -> table; design -> table; alpcfg -> table; sheet -> table; yaml -> table;
+  sheet -> yaml [style=invis]; fastq -> refs [style=invis]; design -> alpcfg [style=invis];
+  yaml -> table [ltail=cluster_user]; refs -> table [ltail=cluster_made]; alpcfg -> table [style=invis];
 }

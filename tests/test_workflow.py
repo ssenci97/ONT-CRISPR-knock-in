@@ -57,7 +57,7 @@ def test_refuses_unknown_analysis(tmp_path):
     assert r.returncode != 0 and "create the analysis first" in r.stdout + r.stderr
 
 @needs
-@pytest.mark.parametrize("profile", ["profiles/slurm", "profiles/local"])
+@pytest.mark.parametrize("profile", ["profiles/slurm"])
 def test_profiles(tmp_path, profile):
     r, out = dry(tmp_path, "--profile", profile)
     assert r.returncode == 0, out

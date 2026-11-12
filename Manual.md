@@ -27,7 +27,7 @@
 | Path | Holds |
 |---|---|
 | `Snakefile` | rules `ena download filter refs alpine lungo summary` |
-| `profiles/` | `slurm/`, `local/` |
+| `profiles/` | `slurm/` |
 | `configs/` | `samples.tsv`, `samples/<id>.json`, `sample_schema.json`, `tools.tsv`, `param_configs.yaml`, `refs.sha256` |
 | `envs/` | `kv.yml` (in image), `snakemake.yml` (host launcher) |
 | `src/` | `analysis.py`, `common.sh`, step scripts, `build_refs.py`, `summarize.py`, `sample_meta.py`, `gui_serve.py`, `diagrams.sh` |
@@ -45,7 +45,7 @@
 | `ALPINE/<sample>/`, `CRISPRLungo/<sample>/` | tool outputs |
 | `meta/<sample_id>.json` | run provenance |
 | `logs/<step>/` | one log + benchmark TSV per job |
-| `summary.tsv`, `summary_matrix.tsv` | KI % results |
+| `summary.tsv`, `summary_matrix.tsv` | KI % results; `summary.tsv` also carries `partial_reads`/`partial_pct` (insert present but below `ki_min_insert_frac`) and the full per-class breakdown in `notes` |
 | `run.log`, `run_state.json` | console launch record |
 
 ## 4. Conventions

@@ -1,7 +1,0 @@
-cores: 8
-software-deployment-method: apptainer
-apptainer-args: "--cleanenv"
-keep-going: true
-rerun-incomplete: true
-printshellcmds: true
-show-failed-logs: true

@@ -1,29 +1,28 @@
 digraph containers {
-  graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="Build with Docker on a workstation, pull with Singularity on Orfeo.\nOne image, public: both tools may be redistributed."];
-  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
-  edge [color="#6b6862", arrowsize=0.7, fontsize=9, fontname="Helvetica"];
+  graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.5,
+         label="Build with Docker on a workstation,\npull with Singularity on the SLURM HPC cluster.\nOne public image: both tools may be redistributed.\n "];
+  node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
+  edge [color="#48484a", arrowsize=1.0, penwidth=1.4, fontname="Helvetica", fontsize=16];
 
   subgraph cluster_ws {
-    label="workstation: docker"; fontname="Helvetica"; fontsize=10; color="#4a5568"; style=dashed;
-    dfile [label="containers/Dockerfile", fillcolor="#fdf2e3"];
-    img [label="ont-knockin-val\nconda env (the long solve)\ncwltool, minimap2 2.16\nALPINE (MIT)\nCRISPRLungo (AGPL, academic)", fillcolor="#e8f1ee"];
+    label="workstation: docker"; fontname="Helvetica"; fontsize=19; color="#48484a"; style=dashed;
+    dfile [label="containers/Dockerfile", fillcolor="#fff1d6"];
+    img [label="ont-knockin-val\nconda env, cwltool, minimap2 2.16\nALPINE (MIT)\nCRISPRLungo (AGPL, academic)", fillcolor="#dff2ea"];
   }
   subgraph cluster_ghcr {
-    label="ghcr.io"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
-    pub [label="ont-knockin-val:tag\nPUBLIC -- no token to pull", fillcolor="#e8f1ee"];
-    dig [label="containers/images.env\nKV_IMAGE_REF=...@sha256:...", fillcolor="#fdf2e3"];
+    label="ghcr.io"; fontname="Helvetica"; fontsize=19; color="#1f5f4f"; style=dashed;
+    pub [label="ont-knockin-val:tag\npublic, no token to pull", fillcolor="#dff2ea"];
+    dig [label="containers/images.env\nKV_IMAGE_REF=...@sha256:...", fillcolor="#fff1d6"];
   }
-  subgraph cluster_orfeo {
-    label="orfeo: no root, no docker, no build"; fontname="Helvetica"; fontsize=10; color="#5a4a8a"; style=dashed;
-    sif [label="containers/ont-knockin-val.sif", fillcolor="#f2eff9"];
-    run [label="snakemake --profile profiles/slurm\nevery rule runs inside the .sif", fillcolor="#f2eff9"];
+  subgraph cluster_hpc {
+    label="SLURM HPC cluster: no root, no docker"; fontname="Helvetica"; fontsize=19; color="#5a4a8a"; style=dashed;
+    sif [label="containers/ont-knockin-val.sif", fillcolor="#ece8f7"];
+    run [label="snakemake --profile profiles/slurm\nevery rule runs inside the .sif", fillcolor="#ece8f7"];
   }
 
-  dfile -> img [label="build.sh build"];
-  img -> pub [label="build.sh push"];
-  pub -> dig [label="records digest"];
-  dig -> sif [label="singularity pull\ndocker://...@sha256:<digest>"];
-  sif -> run [label="KV_SIF=..."];
-  img -> run [style=dotted, label="KV_IMAGE=... (workstation)"];
+  dfile -> img [label=" build.sh build"];
+  img -> pub [label=" build.sh push"];
+  pub -> dig [label=" records digest"];
+  dig -> sif [label=" build.sh pull"];
+  sif -> run [label=" KV_SIF"];
 }

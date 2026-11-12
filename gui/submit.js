@@ -35,6 +35,12 @@ function table(head, rows, valCols = []) {
   return wrap;
 }
 
+function rich(tag, text, cls) {
+  const n = el(tag, cls);
+  String(text).split("`").forEach((part, i) => n.append(i % 2 ? el("code", null, part) : document.createTextNode(part)));
+  return n;
+}
+
 function paramValue(key) {
   const [sec, first] = key.split(" ")[0].split(".");
   const out = [];
@@ -51,10 +57,25 @@ function renderInfo() {
   box.append(el("h2", null, "Inputs and parameters"),
     el("p", null, "What each input is, which step reads it, and how every variable in configs/param_configs.yaml maps to the original tool arguments. Values are the current ones; each analysis freezes its own copy in results/<analysis>/inputs/params.yaml."));
   box.append(el("h4", null, "Input data types"));
-  box.append(table(["Input", "Format", "How it is used"], (info.inputs || []).map((x) => [x.name, x.format, x.use])));
+  const ui = el("ul", "vars");
+  for (const x of info.inputs || []) {
+    const li = el("li"), head = el("div", "var-head");
+    head.append(rich("strong", x.name), rich("span", x.format, "fmt"));
+    li.append(head, rich("p", x.use));
+    ui.append(li);
+  }
+  box.append(ui);
   box.append(el("h4", null, "Variables"));
-  box.append(table(["Variable", "Current value", "Meaning", "Used by", "Original argument"],
-    (info.params || []).map((x) => [x.key, paramValue(x.key), x.meaning + (x.also ? `; also ${x.also}` : ""), x.used_by, x.arg]), [1]));
+  const ul = el("ul", "vars");
+  for (const x of info.params || []) {
+    const li = el("li"), head = el("div", "var-head");
+    head.append(el("code", "key", x.key));
+    const v = paramValue(x.key);
+    if (v !== "—") head.append(el("span", "eq", "="), el("code", "val", v));
+    li.append(head, rich("p", x.meaning), rich("p", `Step: ${x.used_by} · Original argument: ${x.arg}`, "where"));
+    ul.append(li);
+  }
+  box.append(ul);
   box.append(el("h4", null, "Original command lines"));
   for (const c of info.commands || []) {
     box.append(el("p", null, `${c.step} · ${c.tool}`), el("pre", "cmd", c.cmd));
@@ -150,13 +171,20 @@ function sourceGroup(g, values) {
 function card(values = {}) {
   const node = $("#card").content.firstElementChild.cloneNode(true);
   const groups = $(".groups", node);
+  const extra = el("details", "extra"), names = [];
   for (const g of state.schema.groups) {
     if (g.source) { groups.append(sourceGroup(g, values)); continue; }
     const sec = el("div", "group"), fields = el("div", "fields");
     sec.append(el("h4", null, g.name));
     for (const f of g.fields) fields.append(field(f, values[f.id]));
     sec.append(fields);
-    groups.append(sec);
+    if (g.optional) { extra.append(sec); names.push(g.name.toLowerCase()); } else groups.append(sec);
+  }
+  if (names.length) {
+    const su = el("summary");
+    su.append(el("span", "extra-title", "Optional details"), el("span", "extra-sub", `${names.join(", ")} · provenance only, not used by the tools`));
+    extra.prepend(su);
+    groups.append(extra);
   }
   const title = $(".title", node), sid = $('[data-field="sample_id"]', node);
   const retitle = () => (title.textContent = sid.value.trim() || "New sample");
@@ -275,7 +303,7 @@ function renderSteps(steps) {
       jobs.append(r);
     }
     d.append(su, jobs);
-    if (s.failed) d.open = true;
+    if (s.failed) { d.open = true; d.classList.add("has-failed"); }
     box.append(d);
   }
 }

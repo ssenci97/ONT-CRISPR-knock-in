@@ -29,6 +29,9 @@ def test_matrix(tmp_path):
     assert rows[0] == ["tool", "A", "B"]
     assert rows[1] == ["ALPINE", "10.0", "60.0"]
     assert rows[2] == ["CRISPRLungo", "0.0", "25.0"]
+    s = {(r[0], r[1]): r for r in (l.split("\t") for l in open(f"{d}/summary.tsv").read().split("\n")[1:] if l)}
+    assert s[("CRISPRLungo", "B")][7:9] == ["1", "25.0"]
+    assert s[("ALPINE", "B")][7] == "0"
 
 def test_missing_output_is_na(tmp_path):
     d = str(tmp_path / "results" / "run1")

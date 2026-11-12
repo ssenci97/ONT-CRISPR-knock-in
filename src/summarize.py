@@ -11,7 +11,7 @@ NAME = "summarize"
 OUT = RES = PARAM_YAML = SAMPLES_TSV = None
 PARAMS = dict()
 SHARED = dict(ki_min_insert_frac=0.8)
-COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "metric", "notes"]
+COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "partial_reads", "partial_pct", "metric", "notes"]
 
 ###################################### helpers
 def log(m): print(f"[PYTHON-INFO] {m}", flush=True)
@@ -33,8 +33,9 @@ def alpine(sample_id, d, p):
         try: cnt[k] = int(float(v))
         except ValueError: pass
     n, k = sum(cnt.values()), sum(v for c, v in cnt.items() if c.upper().startswith("HDR"))
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"ALPINE HDR class (transgene >={p['ki_min_insert_frac']:.0%} of insert, both homology arms validated) / classified reads",
-                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])[:5] if v))
+    part = sum(v for c, v in cnt.items() if c.upper().startswith("NON-HDR"))
+    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"ALPINE HDR class (transgene >={p['ki_min_insert_frac']:.0%} of insert, both homology arms validated) / classified reads",
+                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1]) if v))
 
 def union_len(spans):
     merged = []
@@ -53,12 +54,12 @@ def lungo(sample_id, d, p):
         spans.setdefault(rid, []).extend((int(a), int(b)) for a, b in
             re.findall(r"CAR_insert_\d+to\d+inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or ""))
     need = p["ki_min_insert_frac"] * d["insert_len"]
-    reads = {rid: union_len(s) >= need for rid, s in spans.items()}
+    cov = {rid: union_len(s) for rid, s in spans.items()}
     cnt = {}
     for c in cls.values(): cnt[c] = cnt.get(c, 0) + 1
-    n, k = len(reads), sum(reads.values())
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads whose CAR_insert integration covers >={p['ki_min_insert_frac']:.0%} of the insert (union of blocks) / classified reads",
-                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])[:5]))
+    n, k, part = len(cov), sum(c >= need for c in cov.values()), sum(0 < c < need for c in cov.values())
+    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"reads whose CAR_insert integration covers >={p['ki_min_insert_frac']:.0%} of the insert (union of blocks) / classified reads",
+                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])))
 
 TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo}
 

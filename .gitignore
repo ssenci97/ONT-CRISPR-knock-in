@@ -2,7 +2,6 @@ tools/
 data/
 refs/
 results/
-logs/
 containers/*.sif
 *.lock
 __pycache__/

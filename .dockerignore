@@ -1,10 +1,6 @@
-.git/
-tools/
-data/
-refs/
-results/
-logs/
-gui/
-docs/
-containers/*.sif
-__pycache__/
+*
+!envs/kv.yml
+!containers/kv.lock.txt
+!LICENSES
+!LICENSES/**
+!LICENSES.md

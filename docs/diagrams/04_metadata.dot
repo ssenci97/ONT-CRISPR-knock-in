@@ -1,25 +1,22 @@
 digraph metadata {
-  graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="Where sample metadata comes from and where the run records it"];
-  node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
-  edge [color="#6b6862", arrowsize=0.7];
+  graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.5,
+         label="Where sample metadata comes from\nand where the run records it\n "];
+  node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
+  edge [color="#48484a", arrowsize=1.0, penwidth=1.4, fontname="Helvetica", fontsize=16];
 
-  schema [label="configs/sample_schema.json\n(field definitions)", fillcolor="#fdf2e3"];
-  form   [label="gui/submit.html + submit.js\n(form, no logic about files)", fillcolor="#f2eff9"];
-  serve  [label="src/gui_serve.py\n(validates, writes)", fillcolor="#f2eff9"];
-  sheet  [label="configs/samples.tsv\n(what the pipeline runs on)", fillcolor="#e8f1ee"];
-  sjson  [label="configs/samples/<sample_id>.json\n(what the wet lab submitted)", fillcolor="#e8f1ee"];
+  schema [label="configs/sample_schema.json\nfield definitions", fillcolor="#fff1d6"];
+  form   [label="gui/submit.html + submit.js\nthe form", fillcolor="#ece8f7"];
+  serve  [label="src/gui_serve.py\nvalidates, writes", fillcolor="#ece8f7"];
+  sheet  [label="configs/samples.tsv\nwhat the pipeline runs on", fillcolor="#dff2ea"];
+  sjson  [label="configs/samples/<sample_id>.json\nwhat the wet lab submitted", fillcolor="#dff2ea"];
+  frozen [label="results/<name>/inputs/\nsamples.tsv, samples/*.json, params.yaml", fillcolor="#f2f2f7"];
+  steps  [label="pipeline rules\nkv_meta <sample_id> <step> k=v", fillcolor="#ece8f7"];
+  writer [label="src/sample_meta.py\nsingle writer", fillcolor="#ece8f7"];
+  rjson  [label="results/<name>/meta/<sample_id>.json\nsubmitted fields + per-step params,\nread counts, job ids, commit", fillcolor="#1f5f4f", fontcolor="white", penwidth=0];
 
-  schema -> form [label="GET /api/schema", fontsize=9, fontname="Helvetica"];
-  form -> serve [label="POST /api/samples", fontsize=9, fontname="Helvetica"];
+  schema -> form [label=" GET /api/schema"];
+  form -> serve [label=" POST /api/samples"];
   serve -> sheet; serve -> sjson;
-  serve -> frozen [label="POST /api/run freezes", fontsize=9, fontname="Helvetica"];
-  frozen [label="results/<name>/inputs/\nsamples.tsv · samples/*.json · params.yaml", fillcolor="#f6f5f2"];
-
-  steps [label="pipeline rules\n(kv_meta <sample_id> <step> k=v)", fillcolor="#f2eff9"];
-  writer [label="src/sample_meta.py\n(single writer)", fillcolor="#f2eff9"];
-  rjson [label="results/<name>/meta/<sample_id>.json\nsubmitted + per-step params,\nread counts, job ids, commit", fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
-
-  frozen -> steps; sjson -> writer [label="copied in", fontsize=9, fontname="Helvetica"];
-  steps -> writer -> rjson;
+  sheet -> frozen [label=" Run freezes"]; sjson -> frozen;
+  frozen -> steps -> writer -> rjson;
 }
