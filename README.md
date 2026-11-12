@@ -23,7 +23,7 @@ The console's info panel shows the same definitions, together with the current v
 - **condition** (free text): A human-readable label for the treatment, e.g. `rnp_dsDNA_donor`. Carried into `summary.tsv` and the KI % matrix; not interpreted by the tools.
 - **control** (tick box (`1` / `0`)): Marks a negative control. The first ticked sample is passed to CRISPRLungo as `--control`; at least one is required.
 - **Wet-lab and sequencing fields** (free text, dates, numbers): Provenance only. Stored in `configs/samples/<sample_id>.json` and copied into `results/<analysis>/meta/`; never read by the tools.
-- **References (built by `02_refs`)** (`TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `alpine/ref.fa`, `alpine/config.tsv`, `design.json`): Wild-type and knock-in amplicons, the CAR insert, guide, primers and homology arms. Built from the hg38 window (`refs.region`) and the paper supplement (`refs.pmc`).
+- **References (built by `02_refs`)** (`TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `alpine/ref.fa`, `alpine/config.tsv`, `design.json`): Control (unedited) and knock-in amplicons, the inserted gene, guide, primers and homology arms. Built from a genome window (`refs.region`) and the donor template table of the paper (`refs.pmc`). The files are named after the example locus (`TRAC`, `CAR`); their roles are the same for any target.
 
 ![inputs](docs/img/01_inputs.svg)
 
@@ -31,7 +31,7 @@ The console's info panel shows the same definitions, together with the current v
 
 Each variable is listed with what it controls, the step that reads it, and the original argument it maps to in the tool.
 
-- `shared.ki_min_insert_frac`: Minimum fraction of the CAR insert that a read must cover to be counted as a knock-in. 0.8 means at least 80% of the insert must be present; shorter, truncated integrations are not counted. The same threshold is applied to both tools so their percentages are comparable.
+- `shared.ki_min_insert_frac`: Minimum fraction of the inserted gene that a read must cover to be counted as a knock-in. 0.8 means at least 80% of the insert must be present; shorter, truncated integrations are not counted. The same threshold is applied to both tools so their percentages are comparable.
   - step: `03_alpine`, `05_summary`
   - original argument: ALPINE `truncated_cutoff` in job.yaml; for CRISPRLungo it is applied afterwards by `summarize.py` on the merged insert blocks
 - `fetch.bioproject`: NCBI/ENA BioProject that the SRA runs belong to. Only used to download the run table from ENA, so that every downloaded run can be checked against its expected read count. Not needed when all samples are local FASTQ files.
@@ -122,7 +122,7 @@ Each analysis freezes its own copy of these values in `results/<analysis>/inputs
 
 ### Samples
 
-The page starts empty. **Show example data** fills in the five public ONT runs of PRJNA1257358 (TRAC CD19-CAR, AsCas12a). **Hide info** collapses the definitions above. Each card keeps the fields the pipeline needs; the sequencing and wet-lab fields sit at the end under **Optional details**, collapsed by default.
+The page starts empty. **Show example data** fills in five public ONT runs of a published knock-in experiment (BioProject PRJNA1257358, credited under [Credits and citation](#credits-and-citation)). **Hide info** collapses the definitions above. Each card keeps the fields the pipeline needs; the sequencing and wet-lab fields sit at the end under **Optional details**, collapsed by default.
 
 ![samples: info panel](docs/img/gui_samples_info.png)
 
@@ -210,8 +210,8 @@ cat results/<name>/summary_matrix.tsv                            # KI % per tool
 
 | Term | Definition |
 |---|---|
-| ALPINE KI | `HDR-CD19` class: insert ≥ `ki_min_insert_frac` **and** both homology arms aligned |
-| CRISPRLungo KI | `CAR_insert` blocks, **merged**, cover ≥ `ki_min_insert_frac` of the insert |
+| ALPINE KI | `HDR-<name>` class: insert ≥ `ki_min_insert_frac` **and** both homology arms aligned |
+| CRISPRLungo KI | integration blocks matching the insert, **merged**, cover ≥ `ki_min_insert_frac` of the insert |
 | `metric` column | the rule used for each row of `summary.tsv` |
 | denominator | length-passing reads (`reads_used`), not all reads |
 | control caveat | the CRISPRLungo control is ≈ 0 by construction; use `NoDonor` as its negative |
@@ -221,7 +221,7 @@ cat results/<name>/summary_matrix.tsv                            # KI % per tool
 
 A read that is neither a clean knock-in nor unedited is still counted and reported, so a failed experiment can be told apart from a partly successful one.
 
-- **Partial inserts (more than 0 but below the threshold)** are counted in their own columns of `summary.tsv`: `partial_reads` and `partial_pct`. For ALPINE these are the `Non-HDR-...` classes, which is exactly what ALPINE calls a read whose insert is too short; for CRISPRLungo they are reads with some `CAR_insert` integration whose merged blocks cover less than `ki_min_insert_frac` of the insert. In the public data these are not rare: ALPINE reported 4–6 % `Non-HDR-without-ITR-CD19` in the donor samples, against 0 % in the controls.
+- **Partial inserts (more than 0 but below the threshold)** are counted in their own columns of `summary.tsv`: `partial_reads` and `partial_pct`. For ALPINE these are the `Non-HDR-...` classes, which is exactly what ALPINE calls a read whose insert is too short; for CRISPRLungo they are reads with some insert integration whose merged blocks cover less than `ki_min_insert_frac` of the insert. In the public data these are not rare: ALPINE reported 4–6 % `Non-HDR-...` reads in the donor samples, against 0 % in the controls.
 - **Everything else is distinguished too, not merged into "not knock-in".** Both tools classify every read, and the full class breakdown with percentages goes into the `notes` column of `summary.tsv`. A small insertion or deletion at the cut is therefore a different outcome from an unedited read: ALPINE reports `Unmodified`, `Unmodified-with-SNP`, `DEL-small`, `INS-small`, `DEL-large`, `INS-large`, `INV`, `DUP`, `Unclassified`; CRISPRLungo reports `WT`, `Sub`, `Ins`, `Del`, `LargeIns`, `LargeDel`, `Inversion`, `Complex`.
 - The per-read tables are kept as well, under `results/<name>/ALPINE/<sample>/` and `results/<name>/CRISPRLungo/<sample>/results/`, if you want to go back to individual reads.
 
@@ -257,6 +257,11 @@ Only `ki_pct` is shown in the KI % matrix; the other columns live in `summary.ts
 | hg38 region, paper xlsx | sha256 | `configs/refs.sha256` |
 | reads | SRA accession, or local path as submitted | `results/<name>/inputs/samples.tsv` |
 | analysis inputs | copied at creation | `results/<name>/inputs/` |
+
+## Credits and citation
+
+- **Tools.** ALPINE (Chen et al., *Bioinformatics* 2026) and CRISPRLungo (Hwang, Pinello et al., *Nature Biomedical Engineering* 2026) do the analysis. Please cite them if you use these results. Their licences are in [LICENSES.md](LICENSES.md).
+- **Example data.** The example samples are public reads of: Nitulescu A-M, Du W, Glaser V, et al. *Single-stranded HDR templates with truncated Cas12a-binding sequences improve knock-in efficiencies in primary human T cells.* Mol Ther Nucleic Acids 36(2):102568 (2025), [doi:10.1016/j.omtn.2025.102568](https://doi.org/10.1016/j.omtn.2025.102568), reads in SRA BioProject [PRJNA1257358](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1257358). The paper is open access under CC BY-NC-ND 4.0. Nothing from it is copied here: reads and the supplement are downloaded from their original source when you run the pipeline. Details in [LICENSES.md](LICENSES.md#example-data).
 
 ## Development
 

@@ -25,7 +25,7 @@ digraph inputs {
       <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>reads</B></FONT></TD><TD><FONT POINT-SIZE="18">fastqfile</FONT></TD><TD><FONT POINT-SIZE="18">positional</FONT></TD></TR>
       <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>WT amplicon</B></FONT></TD><TD><FONT POINT-SIZE="18">reffile (WT_TRAC)</FONT></TD><TD><FONT POINT-SIZE="18">positional</FONT></TD></TR>
       <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>KI amplicon</B></FONT></TD><TD><FONT POINT-SIZE="18">reffile (Ref_HDR_CD19)</FONT></TD><TD><FONT POINT-SIZE="18">--induced_sequence_path</FONT></TD></TR>
-      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>CAR insert</B></FONT></TD><TD><FONT POINT-SIZE="18">config.tsv gene_start/end</FONT></TD><TD><FONT POINT-SIZE="18">--integration_file</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>inserted gene</B></FONT></TD><TD><FONT POINT-SIZE="18">config.tsv gene_start/end</FONT></TD><TD><FONT POINT-SIZE="18">--integration_file</FONT></TD></TR>
       <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>guide</B></FONT></TD><TD><FONT POINT-SIZE="18">cut site in config.tsv</FONT></TD><TD><FONT POINT-SIZE="18">positional + --cleavage_pos</FONT></TD></TR>
       <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>primers</B></FONT></TD><TD><FONT POINT-SIZE="18">primer_1 / primer_2</FONT></TD><TD><FONT POINT-SIZE="18">not used</FONT></TD></TR>
       <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="18"><B>homology arms</B></FONT></TD><TD><FONT POINT-SIZE="18">five/three_prime_HA_seq</FONT></TD><TD><FONT POINT-SIZE="18">not used</FONT></TD></TR>

@@ -249,13 +249,13 @@
       {
         "name": "References (built by `02_refs`)",
         "format": "`TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `alpine/ref.fa`, `alpine/config.tsv`, `design.json`",
-        "use": "Wild-type and knock-in amplicons, the CAR insert, guide, primers and homology arms. Built from the hg38 window (`refs.region`) and the paper supplement (`refs.pmc`)."
+        "use": "Control (unedited) and knock-in amplicons, the inserted gene, guide, primers and homology arms. Built from a genome window (`refs.region`) and the donor template table of the paper (`refs.pmc`). The files are named after the example locus (`TRAC`, `CAR`); their roles are the same for any target."
       }
     ],
     "params": [
       {
         "key": "shared.ki_min_insert_frac",
-        "meaning": "Minimum fraction of the CAR insert that a read must cover to be counted as a knock-in. 0.8 means at least 80% of the insert must be present; shorter, truncated integrations are not counted. The same threshold is applied to both tools so their percentages are comparable.",
+        "meaning": "Minimum fraction of the inserted gene that a read must cover to be counted as a knock-in. 0.8 means at least 80% of the insert must be present; shorter, truncated integrations are not counted. The same threshold is applied to both tools so their percentages are comparable.",
         "used_by": "03_alpine, 05_summary",
         "arg": "ALPINE `truncated_cutoff` in job.yaml; for CRISPRLungo it is applied afterwards by `summarize.py` on the merged insert blocks"
       },
