@@ -1,14 +1,13 @@
 digraph all_tools {
   graph [rankdir=LR, bgcolor="white", fontname="Helvetica", fontsize=11, labelloc=t,
-         label="All-tools run:  bash slurms/run_all.sh --sbatch   (same inputs, same files, two readers)"];
+         label="Whole analysis:  snakemake --profile profiles/slurm --config analysis=<name>   (same inputs, same files, two readers)"];
   node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", color="#c9c4bb", penwidth=1.1];
   edge [color="#6b6862", arrowsize=0.7];
 
-  c1 [label="01_clone", fillcolor="#f6f5f2"];
-  c2 [label="02_envs", fillcolor="#f6f5f2"];
-  c3 [label="03_fetch", fillcolor="#f6f5f2"];
-  c4 [label="04_build_refs", fillcolor="#f6f5f2"];
-  c1 -> c2 -> c3 -> c4 [label="afterok", fontsize=9, fontname="Helvetica"];
+  c1 [label="src/analysis.py <name>\nfreezes results/<name>/inputs/", fillcolor="#fdf2e3"];
+  c3 [label="rules ena, download, filter", fillcolor="#f6f5f2"];
+  c4 [label="rule refs", fillcolor="#f6f5f2"];
+  c1 -> c3 -> c4 [label="file dependency", fontsize=9, fontname="Helvetica"];
 
   subgraph cluster_in {
     label="read from disk, unchanged"; fontname="Helvetica"; fontsize=10; color="#1f6f5c"; style=dashed;
@@ -23,10 +22,10 @@ digraph all_tools {
   contract [label="one input set", shape=box, style=filled, fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
   fastq -> contract; refs -> contract; design -> contract; sheet -> contract; yaml -> contract;
 
-  a [label="05_alpine", fillcolor="#f2eff9"];
-  l [label="06_lungo", fillcolor="#f2eff9"];
+  a [label="rule alpine\none job per sample", fillcolor="#f2eff9"];
+  l [label="rule lungo\none job per sample", fillcolor="#f2eff9"];
   contract -> a; contract -> l;
 
-  s [label="07_summary\nresults/summary_matrix.tsv", fillcolor="#f6f5f2"];
-  a -> s; l -> s [label="afterany", fontsize=9, fontname="Helvetica"];
+  s [label="rule summary\nresults/<name>/summary_matrix.tsv", fillcolor="#f6f5f2"];
+  a -> s; l -> s [label="file dependency", fontsize=9, fontname="Helvetica"];
 }

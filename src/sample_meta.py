@@ -3,9 +3,10 @@
 import datetime, fcntl, json, os, subprocess, sys
 
 ###################################### constants
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-META_DIR = f"{ROOT}/results/meta"
-SUBMITTED_DIR = f"{ROOT}/configs/samples"
+ROOT = os.environ.get("KV_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.environ.get("KV_OUT") or f"{ROOT}/results/default"
+META_DIR = f"{OUT}/meta"
+SUBMITTED_DIR = f"{OUT}/inputs/samples"
 
 ###################################### helpers
 def scalar(v):

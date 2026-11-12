@@ -13,13 +13,13 @@ digraph metadata {
   schema -> form [label="GET /api/schema", fontsize=9, fontname="Helvetica"];
   form -> serve [label="POST /api/samples", fontsize=9, fontname="Helvetica"];
   serve -> sheet; serve -> sjson;
-  serve -> arrays [label="sets array size", fontsize=9, fontname="Helvetica"];
-  arrays [label="slurms/0{3,5,6}_*.sh\n#SBATCH --array=1-N", fillcolor="#f6f5f2"];
+  serve -> frozen [label="POST /api/run freezes", fontsize=9, fontname="Helvetica"];
+  frozen [label="results/<name>/inputs/\nsamples.tsv · samples/*.json · params.yaml", fillcolor="#f6f5f2"];
 
-  steps [label="pipeline steps\n(kv_meta <sample_id> <step> k=v)", fillcolor="#f2eff9"];
+  steps [label="pipeline rules\n(kv_meta <sample_id> <step> k=v)", fillcolor="#f2eff9"];
   writer [label="src/sample_meta.py\n(single writer)", fillcolor="#f2eff9"];
-  rjson [label="results/meta/<sample_id>.json\nsubmitted + per-step params,\nread counts, job ids, commit", fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
+  rjson [label="results/<name>/meta/<sample_id>.json\nsubmitted + per-step params,\nread counts, job ids, commit", fillcolor="#1f6f5c", fontcolor="white", penwidth=0];
 
-  sheet -> steps; sjson -> writer [label="copied in", fontsize=9, fontname="Helvetica"];
+  frozen -> steps; sjson -> writer [label="copied in", fontsize=9, fontname="Helvetica"];
   steps -> writer -> rjson;
 }

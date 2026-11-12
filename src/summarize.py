@@ -7,8 +7,8 @@ from tqdm import tqdm
 ###################################### constants
 T0 = time.time()
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RES, PARAM_YAML, NAME = f"{ROOT}/results", f"{ROOT}/configs/param_configs.yaml", "summarize"
-SAMPLES_TSV = f"{ROOT}/configs/samples.tsv"
+NAME = "summarize"
+OUT = RES = PARAM_YAML = SAMPLES_TSV = None
 PARAMS = dict()
 SHARED = dict(ki_min_insert_frac=0.8)
 COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "metric", "notes"]
@@ -26,10 +26,9 @@ def yaml_io(p, a):
 
 ###################################### tool metrics
 def alpine(sample_id, d, p):
-    hits = sorted(h for h in glob.glob(f"{RES}/ALPINE/{sample_id}/**/{sample_id}_read_classification.txt", recursive=True) if "/cwl_local/" not in h)
-    if not hits: return None
-    if len(hits) > 1: log(f"!! {sample_id}: {len(hits)} ALPINE classification files, using {hits[-1]}")
-    rows = list(csv.reader(open(hits[-1]), delimiter="\t")); cnt = {}
+    f = f"{RES}/ALPINE/{sample_id}/{sample_id}_read_classification.txt"
+    if not os.path.exists(f): return None
+    rows = list(csv.reader(open(f), delimiter="\t")); cnt = {}
     for k, v in zip(rows[0], rows[-1]):
         try: cnt[k] = int(float(v))
         except ValueError: pass
@@ -57,18 +56,23 @@ def lungo(sample_id, d, p):
     reads = {rid: union_len(s) >= need for rid, s in spans.items()}
     cnt = {}
     for c in cls.values(): cnt[c] = cnt.get(c, 0) + 1
-    cls = cnt
     n, k = len(reads), sum(reads.values())
     return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), metric=f"reads whose CAR_insert integration covers >={p['ki_min_insert_frac']:.0%} of the insert (union of blocks) / classified reads",
-                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cls.items(), key=lambda x: -x[1])[:5]))
+                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])[:5]))
 
 TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo}
+
+def set_root(d):
+    global OUT, RES, SAMPLES_TSV, PARAM_YAML
+    OUT = RES = os.path.abspath(d)
+    SAMPLES_TSV, PARAM_YAML = f"{OUT}/inputs/samples.tsv", f"{OUT}/inputs/params.yaml"
 
 ###################################### main
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--yaml-in", action="store_true"); ap.add_argument("--yaml-out", action="store_true")
-    p = yaml_io({**SHARED, **PARAMS}, ap.parse_args()); d = json.load(open(f"{ROOT}/refs/design.json"))["design"]
-    sp = f"{ROOT}/data/read_stats.tsv"; sub = {r["sample_id"]: r for r in tsv(sp)} if os.path.exists(sp) else {}
+    ap.add_argument("--analysis-dir", required=True); a = ap.parse_args(); set_root(a.analysis_dir)
+    p = yaml_io({**SHARED, **PARAMS}, a); d = json.load(open(f"{OUT}/refs/design.json"))["design"]
+    sub = {r["sample_id"]: r for sp in glob.glob(f"{OUT}/data/stats/*.tsv") for r in tsv(sp)}
     SAMPLES = {r["sample_id"]: r["condition"] for r in tsv(SAMPLES_TSV)}; out = []
     for tool, sample_id in tqdm([(t, s) for t in TOOLS for s in SAMPLES], desc="[PYTHON-INFO] summarize", disable=None):
         r = dict(tool=tool, sample_id=sample_id, condition=SAMPLES[sample_id], reads_in=sub.get(sample_id, {}).get("len_pass", ""))

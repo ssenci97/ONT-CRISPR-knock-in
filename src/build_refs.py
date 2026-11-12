@@ -42,8 +42,12 @@ def yaml_io(p, a):
 
 ###################################### main
 def main():
+    global PARAM_YAML
     ap = argparse.ArgumentParser(); ap.add_argument("--yaml-in", action="store_true"); ap.add_argument("--yaml-out", action="store_true")
-    p = yaml_io(dict(PARAMS), ap.parse_args()); os.chdir(ROOT); o = p["out_dir"]; os.makedirs(f"{o}/alpine", exist_ok=True)
+    ap.add_argument("--params"); ap.add_argument("--out-dir"); a = ap.parse_args()
+    if a.params: PARAM_YAML = os.path.abspath(a.params)
+    os.chdir(ROOT); p = yaml_io(dict(PARAMS), a)
+    o = os.path.abspath(a.out_dir) if a.out_dir else p["out_dir"]; os.makedirs(f"{o}/alpine", exist_ok=True)
     g = read_seq(p["genomic_fasta"]); f, r = p["primer_f_specific"].upper(), p["primer_r_specific"].upper(); fs, rs = g.find(f), g.find(rc(r))
     if fs < 0 or rs < 0: sys.exit("[PYTHON-INFO] primers not found in genomic window")
     wt, gs = g[fs:rs + len(r)], p["genomic_start_1based"] + fs

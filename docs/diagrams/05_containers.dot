@@ -17,7 +17,7 @@ digraph containers {
   subgraph cluster_orfeo {
     label="orfeo: no root, no docker, no build"; fontname="Helvetica"; fontsize=10; color="#5a4a8a"; style=dashed;
     sif [label="containers/ont-knockin-val.sif", fillcolor="#f2eff9"];
-    run [label="any step script\nKV_SIF=... sbatch slurms/06_lungo.sh", fillcolor="#f2eff9"];
+    run [label="snakemake --profile profiles/slurm\nevery rule runs inside the .sif", fillcolor="#f2eff9"];
   }
 
   dfile -> img [label="build.sh build"];

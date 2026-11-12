@@ -1,15 +1,10 @@
 shared:
   ki_min_insert_frac: 0.8
-01_clone:
-  tools_tsv: configs/tools.tsv
-02_envs:
-  envs: kv
-  minimap2_216: 0
-03_fetch:
+fetch:
   bioproject: PRJNA1257358
   min_len: 3500
   max_len: 7500
-04_build_refs:
+refs:
   region: 14:22540000..22560000:1
   pmc: PMC12166421
 build_refs:
@@ -24,13 +19,14 @@ build_refs:
   primer_f_specific: TTCAATCACTGCTGTGTCCCT
   primer_r_specific: TCCCACCCCAGACCTCCTAGTT
   out_dir: refs
-05_alpine:
-  alpine_primer_check_length: 150
-  alpine_data_type: nanopore
-alpine_local:
-  mem_mb: 131072
-06_lungo:
-  lungo_cleavage_pos: 17
-  lungo_window: 25
-07_summary: {}
+alpine:
+  primer_check_length: 150
+  data_type: nanopore
+lungo:
+  cleavage_pos: 17
+  window: 25
 summarize: {}
+gui_serve:
+  host: 127.0.0.1
+  port: 8000
+  profile: profiles/slurm

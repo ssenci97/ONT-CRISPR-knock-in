@@ -17,7 +17,7 @@ A CWL v1.2 workflow:
 6. **`group_output`** collects the files.
 
 ## Running it here
-`src/alpine_local.sh <job.yaml> <outdir>`, called by `slurms/05_alpine.sh`.
+`src/alpine.sh`, the `alpine` rule of the `Snakefile`. It writes the CWL job file itself and runs cwltool.
 
 The CWL needs private images (`aavlr_filter:1.6`, `aavlr_classify:1.6.0`, …) that are on no registry, and no build script ships with the repo. The wrapper therefore copies `CWL/`, repoints `/opt/<script>.py` at `tools/ALPINE/DockerFile/<step>/`, sets `coresMin` to `threads` and `ramMin` to `mem_mb`, deletes the `DockerRequirement` blocks, exports `PATCHER_MINIMAP2_PATH`, and runs `cwltool --no-container --preserve-entire-environment`.
 
@@ -71,10 +71,10 @@ Two gates, one deliberate and one a bug, verified by reading `b59121d`:
    **Patched since 2026-11-11.** ALPINE itself gets this right in `classify_read.py` (four call sites use
    `preset = "map-ont" if data_type == "nanopore" else "map-hifi"`); only two helpers hardcode it:
    `classify/utils/data_utils.py:89` and `classify/utils/realign_ins_to_wildtype.py:12`.
-   `src/alpine_local.sh` now copies the whole `DockerFile/` tree into `results/ALPINE/<sample>/cwl_local/`
+   `src/alpine.sh` now copies the whole `DockerFile/` tree into `results/<analysis>/ALPINE/<sample>/cwl_local/`
    and rewrites `-ax map-hifi` to `-ax map-ont` there when `data_type: nanopore`, exactly as the tool's own
-   code would. **The clone at the pinned commit is never modified**, so `01_clone`'s SHA check and the
-   commit recorded in `results/meta/<sample>.json` stay valid; the patch is applied to a per-run copy and
+   code would. **The clone at the pinned commit is never modified**, so the commit baked into the image and
+   recorded in `results/<analysis>/meta/<sample>.json` stays valid; the patch is applied to a per-run copy and
    recorded as `minimap2_preset_patched` in that same metadata. Set `alpine_data_type` to anything but
    `nanopore` and no patching happens.
 
@@ -89,4 +89,4 @@ arm also costs the HDR call.
 Validated once against the shipped `testdata/`: the classification table was identical to the committed expected output.
 
 ## primer_2 orientation
-The `filter_primer` step looks for `primer_1` at the start of the read and `primer_2` *as given* at the end. That means `primer_2` must be the reverse complement of the 5'→3' reverse primer (`filter_fastq_gz.py:107-116`). Checked on 3,096 dsDNA_r1 reads: 0 % pass with the reverse primer as written and 72 % pass with its reverse complement. `05_alpine.sh` now passes the reverse complement.
+The `filter_primer` step looks for `primer_1` at the start of the read and `primer_2` *as given* at the end. That means `primer_2` must be the reverse complement of the 5'→3' reverse primer (`filter_fastq_gz.py:107-116`). Checked on 3,096 dsDNA_r1 reads: 0 % pass with the reverse primer as written and 72 % pass with its reverse complement. `src/alpine.sh` now passes the reverse complement.

@@ -121,9 +121,8 @@ async function submit() {
       `Saved ${body.n} sample(s).`,
       `  ${body.samples_tsv}`,
       ...body.sample_json.map((p) => `  ${p}`),
-      body.arrays.length ? `  SLURM array set to 1-${body.n} in: ${body.arrays.join(", ")}` : "",
       "",
-      "Next: bash slurms/run_all.sh --sbatch",
+      "Next: open the Run tab, name the analysis and press Run",
     ]
       .filter(Boolean)
       .join("\n"),
@@ -147,20 +146,36 @@ function tab(name) {
 }
 
 function describeRuntime(rt) {
-  const where = rt.engine === "apptainer" ? `apptainer · ${rt.sif}`
-    : rt.engine === "podman" ? `podman · ${rt.image}`
-    : "native (no container)";
-  return `${where} · sbatch ${rt.sbatch ? "available" : "not found"}`;
+  const where = rt.sif ? `image ${rt.sif}` : "image pulled by snakemake on first run";
+  const ok = (x) => (x ? "ok" : "MISSING");
+  return `${where} · snakemake ${ok(rt.snakemake)} · apptainer ${ok(rt.apptainer)} · sbatch ${ok(rt.sbatch)}`;
+}
+
+function currentAnalysis() { return $("#analysis").value.trim(); }
+
+function fillPickers(list, running) {
+  for (const sel of [$("#pick"), $("#pick-results")]) {
+    const keep = sel.value;
+    sel.textContent = "";
+    sel.append(el("option", null, sel.id === "pick" ? "— existing analyses —" : "— pick an analysis —"));
+    for (const a of list) {
+      const o = el("option", null, `${a.name}${a.done ? " ✓" : ""}${a.name === running ? " (running)" : ""}`);
+      o.value = a.name; sel.append(o);
+    }
+    sel.value = keep;
+  }
 }
 
 async function refreshStatus() {
-  const s = await (await fetch("/api/status")).json();
+  const name = currentAnalysis();
+  const s = await (await fetch(`/api/status?analysis=${encodeURIComponent(name)}`)).json();
+  fillPickers(s.analyses || [], s.running ? (s.state || {}).analysis : null);
   $("#runtime").textContent = describeRuntime(s.runtime);
   const st = s.state || {};
   const badge = s.running ? '<span class="badge go">running</span>' : '<span class="badge idle">idle</span>';
   $("#run-state").innerHTML = st.started_at
-    ? `${badge} started ${st.started_at} · ${st.mode} · ${st.engine} · ${(st.samples || []).length} samples`
-    : `${badge} no run recorded yet`;
+    ? `${badge} <strong>${st.analysis}</strong> · started ${st.started_at} · ${st.mode} · ${(st.samples || []).length} samples · results/${st.analysis}/`
+    : name ? `${badge} ${name}: not started yet` : `${badge} name an analysis to begin`;
   const tb = $("#steps tbody");
   tb.textContent = "";
   for (const st2 of s.steps) {
@@ -175,9 +190,11 @@ async function refreshStatus() {
 }
 
 async function launch(sbatch) {
+  const analysis = currentAnalysis();
+  if (!analysis) { $("#run-state").textContent = "give the analysis a name first"; return; }
   const res = await fetch("/api/run", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sbatch }),
+    body: JSON.stringify({ sbatch, analysis }),
   });
   const body = await res.json();
   if (!res.ok) { $("#run-state").textContent = (body.errors || ["failed"]).join("; "); return; }
@@ -185,9 +202,11 @@ async function launch(sbatch) {
 }
 
 async function refreshResults() {
-  const r = await (await fetch("/api/results")).json();
+  const name = $("#pick-results").value || currentAnalysis();
+  const r = await (await fetch(`/api/results?analysis=${encodeURIComponent(name)}`)).json();
   const m = $("#matrix");
-  if (!r.matrix) m.textContent = "not available yet — results/summary_matrix.tsv appears when 07_summary finishes";
+  if (!name) m.textContent = "pick an analysis";
+  else if (!r.matrix) m.textContent = `not available yet — results/${name}/summary_matrix.tsv appears when the summary step finishes`;
   else {
     m.textContent = "";
     const t = el("table"), head2 = el("thead"), hr = el("tr");
@@ -218,7 +237,13 @@ async function refreshResults() {
 for (const b of document.querySelectorAll("nav button")) b.addEventListener("click", () => tab(b.dataset.tab));
 $("#run-sbatch").addEventListener("click", () => launch(true));
 $("#run-local").addEventListener("click", () => launch(false));
-$("#stop").addEventListener("click", async () => { await fetch("/api/stop", { method: "POST" }); refreshStatus(); });
+$("#stop").addEventListener("click", async () => {
+  await fetch("/api/stop", { method: "POST", headers: { "Content-Type": "application/json" },
+                             body: JSON.stringify({ analysis: currentAnalysis() }) });
+  refreshStatus();
+});
+$("#pick").addEventListener("change", () => { if ($("#pick").value) { $("#analysis").value = $("#pick").value; refreshStatus(); } });
+$("#pick-results").addEventListener("change", refreshResults);
 $("#refresh-results").addEventListener("click", refreshResults);
 setInterval(() => { if ($("#auto").checked && !$("#tab-run").hidden) refreshStatus(); }, 5000);
 

@@ -15,37 +15,47 @@ copying the software "in any form", so it could not ship inside the container im
 **Not included:** GREPore-seq, VAULT/IDMseq and longread_umi have no knock-in readout, so a KI % from them needs a hand-written metric. PANGEA's repository no longer exists.
 
 ## 2. Requirements
-- Native: `conda` ≥ 23 (libmamba solver), `git`, `curl`.
-- Containerized: `docker` (or `podman`) on a workstation to build and push; `singularity` on the cluster to pull. No sudo on the cluster, no GPU.
-- About 15 GB free: 6.5 GB of reads, 5 GB of conda envs, the rest intermediate. Add ~5 GB for the image.
-- SLURM headers request 16 CPU / 32 GB on partition GENOA for steps 01-04 and 07; the two analysis steps (`05_alpine`, `06_lungo`) request 32 CPU / 128 GB for 24 h. Locally the scripts use 8 threads. The 64 CPU / 240 GB / 48 h header belonged to the removed third tool's own step and went with it.
+- On the cluster: `snakemake` ≥ 8 with the SLURM executor plugin (`envs/snakemake.yml`), `singularity`/`apptainer`, `curl`. Nothing else — the tools and their environment are inside the image. No sudo, no GPU.
+- On a workstation, to build the image: `docker` (or `podman`).
+- About 15 GB free: 6.5 GB of reads, the rest intermediate and results. Add ~5 GB for the image.
+- Resources are per rule, not per script: `default-resources` in `profiles/slurm/config.yaml` sets partition GENOA and the modest defaults; `alpine` and `lungo` ask for 32 CPU / 128 GB / 24 h, `download` and `filter` 16 CPU / 32 GB. Change them in the Snakefile's `threads:`/`resources:` or override per run with `--set-resources`.
 
 ## 3. Layout
 The repository holds only scripts, envs, configs and docs. Everything else is created by the pipeline and gitignored.
 ```
+Snakefile  the whole pipeline: rules ena, download, filter, refs, alpine, lungo, summary
+profiles/  slurm/config.yaml (SLURM executor + apptainer) · local/config.yaml
 configs/   samples.tsv · samples/<sample_id>.json (submitted metadata) · sample_schema.json
            tools.tsv (repo, pinned commit) · param_configs.yaml · refs.sha256 (pin)
-envs/      kv.yml (the only env; the image ships it pre-built)
-slurms/    analysis_env.sh (shared library) · 01_clone · 02_envs · 03_fetch · 04_build_refs
-           05_alpine · 06_lungo · 07_summary · run_all.sh
-src/       build_refs.py · summarize.py · alpine_local.sh · sample_meta.py · gui_serve.py · diagrams.sh
+envs/      kv.yml (inside the image) · snakemake.yml (the launcher env, on the host)
+src/       analysis.py (create/freeze an analysis) · common.sh (guards + helpers, sourced by every script)
+           download.sh · filter.sh · refs.sh · alpine.sh · lungo.sh
+           build_refs.py · summarize.py · sample_meta.py · gui_serve.py · diagrams.sh
 gui/       submit.html · submit.css · submit.js (the console: samples, run, results)
+tests/     pytest suite, no cluster or container needed
 containers/ Dockerfile · build.sh · pins.env · kv.lock.txt (pin) · images.env (digest)
 LICENSES/  one file per tool, indexed by LICENSES.md at the root
 docs/manuals/{ALPINE,CRISPRLungo,Inputs}.md · docs/diagrams/*.dot · docs/img/*.svg
 
-tools/     the 2 cloned repos                         created by 01_clone
-data/      meta/ · raw/ · raw_refs/ · <label>.fastq.gz · read_stats.tsv  created by 03_fetch
-refs/      TRAC_WT.fa · TRAC_KI.fa · CAR_insert.fa · design.json · alpine/  created by 04_build_refs
-results/   <tool>/ · summary.tsv · summary_matrix.tsv        created by 05–06 and 07_summary
-           meta/<sample_id>.json  run provenance, written by src/sample_meta.py
-           run.log · run_state.json   the console's own launch record
-logs/      <step>/<tool>_<jobid>_<task>.log
+data/raw/ · data/meta/ · data/raw_refs/   downloads, shared by every analysis (accessions are immutable)
+results/<analysis>/
+   inputs/    samples.tsv · samples/<id>.json · params.yaml · analysis.json   frozen at creation
+   data/      <sample>.fastq.gz · stats/<sample>.tsv        length-filtered reads
+   refs/      TRAC_WT.fa · TRAC_KI.fa · CAR_insert.fa · design.json · alpine/
+   ALPINE/<sample>/ · CRISPRLungo/<sample>/                 tool outputs
+   meta/<sample_id>.json    run provenance, written by src/sample_meta.py
+   logs/<step>/             one log + one benchmark TSV per job
+   summary.tsv · summary_matrix.tsv · run.log · run_state.json
 ```
 
+**One analysis, one directory.** `python3 src/analysis.py <name>` validates the sample sheet and copies it,
+the per-sample JSONs and `param_configs.yaml` into `results/<name>/inputs/`. From then on the run reads
+only those copies, so editing `configs/` cannot change a finished analysis, and two analyses differing in
+one parameter sit side by side with the exact inputs that produced each.
+
 ## 4. Conventions
-- **Parameters** sit at the top of each script. `--yaml-out` writes them to `configs/param_configs.yaml` under the script name; `--yaml-in` reads them back.
-- **SLURM:** every step carries a GENOA header. The per-sample steps (`03_fetch`, `05`–`06`) are arrays (`--array=1-5`, fetch `1-5%2`), sized for full runs (~320–490k reads per sample), and `SLURM_ARRAY_TASK_ID` selects the sample. Run with `bash`, they loop over all samples.
+- **Parameters** live in `configs/param_configs.yaml`, one section per rule plus `shared:`. They are frozen into the analysis at creation and read from there.
+- **SLURM:** snakemake submits one job per rule per sample through the executor plugin; there are no job arrays and no `#SBATCH` headers to keep in sync with the sample count. `jobs: 40` in the profile caps how many are in flight.
 - **Logs** start with `[SLURM-INFO]` or `[PYTHON-INFO]` and end with `date | elapsed | max RSS`.
 - **No subsampling anywhere.** Every tool gets every read that passes the length filter. `SEED=42` is still exported for any random step.
 - **Samples** live in `configs/samples.tsv` (`sample_id`, `srr`, `condition`, `control`). The control is the
@@ -53,23 +63,28 @@ logs/      <step>/<tool>_<jobid>_<task>.log
 - **Shared parameters** sit in the `shared:` section of `configs/param_configs.yaml` and are read by every
   step. `ki_min_insert_frac` (0.80) drives both ALPINE's `truncated_cutoff` and CRISPRLungo's insert span,
   so the two tools answer the same question.
-- **Containers:** set `KV_SIF` (apptainer) or `KV_IMAGE` (podman) and every step re-executes itself inside
-  the image. Unset, everything runs natively. See the Containers section of the README.
-- **The console** (`python3 src/gui_serve.py`) submits samples, launches the default run and shows results
-  and per-sample metadata. It must run on the host, never inside the container, because it calls `sbatch`.
-  It auto-detects `containers/ont-knockin-val.sif`. One run at a time; `results/run_state.json` holds the pid.
+- **Containers are mandatory.** Snakemake runs every rule in `containers/ont-knockin-val.sif` (or the pinned
+  GHCR digest). The Snakefile refuses to start without apptainer, and `src/common.sh` aborts any script that
+  finds itself outside the image. `KV_SIF` picks a different image; there is no native mode.
+- **The console** (`python3 src/gui_serve.py`) submits samples, names and launches an analysis, and shows its
+  results and per-sample metadata. It must run on the host, never inside the container, because it calls
+  `sbatch`. One run at a time across all analyses; `results/<analysis>/run_state.json` holds the pid.
 - **Everything external is pinned**: tool commits (`configs/tools.tsv`), base image digest
   (`containers/pins.env`), conda packages (`containers/kv.lock.txt`), downloaded references
-  (`configs/refs.sha256`). `01_clone` and `containers/build.sh` refuse anything but a full 40-char SHA.
+  (`configs/refs.sha256`). `containers/build.sh` and the Dockerfile refuse anything but a full 40-char SHA.
 
 ## 5. Install
 ```bash
-bash slurms/01_clone.sh
-bash slurms/02_envs.sh            # builds env kv; add --yaml-in with minimap2_216: 1 for the ALPINE fallback
+conda env create -f envs/snakemake.yml && conda activate kv_snakemake   # the launcher, on the host
+containers/build.sh pull                                                # the image, ~5 GB
+python3 -m pytest -q tests                                              # optional, ~30 s
 ```
-`02_envs` also does `pip install --no-deps -e tools/CRISPRLungo`, which the tool needs. `--no-deps` matters: without it pip pulls PyPI wheels over the conda-provided numpy, pandas and pysam, and a PyPI pysam on top of conda's htslib segfaults at import.
+That is the whole installation on the cluster. The two tools, their pinned commits, the `kv` conda
+environment and minimap2 2.16 are all inside the image; the Dockerfile does the `pip install --no-deps -e
+CRISPRLungo` that the tool needs (`--no-deps` matters: without it pip pulls PyPI wheels over the
+conda-provided numpy, pandas and pysam, and a PyPI pysam on top of conda's htslib segfaults at import).
 
-**ALPINE without Docker** (`src/alpine_local.sh`): the upstream CWL runs `/opt/*.py` inside private images that were never published. The script copies the CWL, repoints those paths at `tools/ALPINE/DockerFile/*`, lowers `coresMin`/`ramMin`, strips `DockerRequirement`, points `PATCHER_MINIMAP2_PATH` at `tools/minimap2_216` if present (`minimap2_216: 1` in step 02), else at the minimap2 2.22 in `kv`, and runs `cwltool --no-container`.
+**ALPINE without Docker** (`src/alpine.sh`): the upstream CWL runs `/opt/*.py` inside private images that were never published. The script copies the CWL into the analysis directory, repoints those paths at `$TOOLS/ALPINE/DockerFile/*`, lowers `coresMin`/`ramMin` to the job's resources, strips `DockerRequirement`, points `PATCHER_MINIMAP2_PATH` at the image's minimap2 2.16, and runs `cwltool --no-container`.
 - The last step, `group_output`, can fail with "str object expected; got None". It only copies finished files, so the run counts as OK when the classification table exists.
 - `MPLBACKEND=Agg` is exported, because ALPINE calls `plt.show()`, which blocks forever on a desktop session.
 
@@ -86,13 +101,13 @@ bash slurms/02_envs.sh            # builds env kv; add --yaml-in with minimap2_2
 | ssDNA_r1 | SRR33387464 | RNP + ssDNA donor |
 | ssCTS_r1 | SRR33387474 | RNP + ssCTS donor |
 
-`03_fetch` takes the `.sra` objects from the NCBI open-data S3 bucket (ENA serves them at about 10 KB/s from here), converts them with `fasterq-dump`, checks the read count against ENA, and keeps every read of 3.5–7.5 kb (no subsampling). Counts go to `data/read_stats.tsv`.
+The `download` rule takes the `.sra` objects from the NCBI open-data S3 bucket (ENA serves them at about 10 KB/s from here), converts them with `fasterq-dump` and checks the read count against ENA; `filter` keeps every read of 3.5–7.5 kb (no subsampling). Counts go to `results/<analysis>/data/stats/<sample>.tsv`.
 
-## 7. References (`04_build_refs` → `src/build_refs.py`)
+## 7. References (rule `refs` → `src/refs.sh` → `src/build_refs.py`)
 - **WT:** hg38 chr14:22,545,232-22,549,589 (4,358 bp), bounded by the paper's gene-specific primers, fetched from Ensembl REST.
 - **Knock-in allele:** the paper's Table S1 AsCas12a HDR template (305 bp arms carrying PAM-blocking mutations) placed into the WT. Insert 2,011 bp, KI allele 6,373 bp. The supplements come from Europe PMC.
 - **Guide:** crRNA `GAGTCTCTCAGCTGGTACACGGC`, minus strand, cut after WT base 2299.
-- Also writes `refs/alpine/{ref.fa,config.tsv}` and `refs/design.json`, which the other steps read.
+- Also writes `refs/alpine/{ref.fa,config.tsv}` and `refs/design.json` inside the analysis, which the other rules read.
 
 The dataset was checked once against both of the paper's templates: reads carrying the full insert matched the AsCas12a template (85 / 17 / 108 of 3,000 for dsDNA / ssDNA / ssCTS) and never the SpCas9 one.
 
@@ -103,7 +118,7 @@ The dataset was checked once against both of the paper's templates: reads carryi
 | CRISPRLungo | `--cleavage_pos 17` (AsCas12a cuts after protospacer nt 18); `--window 25`, because a PAM-blocking mutation sits 20 bp from the cut; `--control Mock_r1`; `--induced_sequence_path`; `--integration_file` | reads whose integration covers ≥ 80 % of the CAR insert / classified reads |
 
 ## 9. Reference results
-From an earlier **subsampled** run (20,000 reads per sample, seed 42); superseded by the full-data run. `07_summary` regenerates these into `results/summary_matrix.tsv`.
+From an earlier **subsampled** run (20,000 reads per sample, seed 42); superseded by the full-data run. The `summary` rule regenerates these into `results/<analysis>/summary_matrix.tsv`.
 
 | Tool | Mock | NoDonor | dsDNA | ssDNA | ssCTS |
 |---|---|---|---|---|---|
@@ -130,27 +145,36 @@ rather than the largest single block, so CRISPRLungo's figures will rise on the 
 ## 10. Troubleshooting
 | Symptom | Cause and fix |
 |---|---|
-| ALPINE: cwltool refuses `--no-container` | hard `DockerRequirement`; `alpine_local.sh` strips it from its CWL copy |
+| ALPINE: cwltool refuses `--no-container` | hard `DockerRequirement`; `src/alpine.sh` strips it from its CWL copy |
 | ALPINE hangs at `count_read`, 0 % CPU | `plt.show()`; `MPLBACKEND=Agg` is exported |
 | ALPINE `group_output … got None` | cosmetic final step; treated as success when the classification table exists |
 | ALPINE: one sample took 60 min against 1 min for the others | seen once (ssCTS_r1), all steps completed, cause not identified; rerun that sample |
 | CRISPRLungo: 0 desired edits, "induced mutation outside the analysis window" | the PAM-blocking mutation at +20 bp; `--window 25` |
 | CRISPRLungo: `Induce_type` is `X` for every read | expected for a 2-kb insert with ONT errors; the KI % uses integration matching instead |
 | CRISPRLungo `--large_induced_insertion` crashes | two upstream bugs in that code path; not used here |
-| ALPINE reports far less knock-in than CRISPRLungo | by design plus a bug, now patched. It needs the insert to reach `truncated_cutoff` (now `ki_min_insert_frac`, was 0.95 on nanopore) **and** both homology arms to align. The arm check ran `minimap2 -ax map-hifi` hardcoded in two helpers that never see `data_type: nanopore`. Since 2026-11-11 `src/alpine_local.sh` rewrites those to `-ax map-ont` in a per-run copy; the pinned clone is untouched. Expect ALPINE's numbers to rise relative to runs before that date. |
+| ALPINE reports far less knock-in than CRISPRLungo | by design plus a bug, now patched. It needs the insert to reach `truncated_cutoff` (now `ki_min_insert_frac`, was 0.95 on nanopore) **and** both homology arms to align. The arm check ran `minimap2 -ax map-hifi` hardcoded in two helpers that never see `data_type: nanopore`. Since 2026-11-11 `src/alpine.sh` rewrites those to `-ax map-ont` in a per-run copy; the image's pinned clone is untouched. Expect ALPINE's numbers to rise relative to runs before that date. |
 | podman: `Failed to obtain podman configuration: lstat /run/user/<uid>` | no systemd user session on that node. `containers/build.sh` and `analysis_env.sh` now fall back to `$TMPDIR/podman-$(id -u)`; set `XDG_RUNTIME_DIR` yourself if you call podman directly |
 | podman: `newuidmap: write to uid_map failed` or "cannot find UID in /etc/subuid" | rootless podman needs a subuid/subgid range for your account; only a cluster admin can add it. Not needed any more: the image is built with Docker on a workstation and pulled on the cluster with `singularity pull`, which needs neither. |
-| Containerized `sbatch` job: "No such file or directory" on the script | SLURM runs a copy from its spool dir, which is not bind-mounted; `analysis_env.sh` copies it into `logs/` first. If you see this, your `KV_BIND` does not cover `$KV_ROOT`. |
-| Step 05 or 06 finishes instantly with empty results | the tool binary is not on PATH. Both steps preflight it and exit 1, so check the step log for the preflight line. |
+| `refusing to run natively` | the workflow was started without apptainer. Use `--profile profiles/slurm` (or `--sdm apptainer`). |
+| `refusing to run outside the container image` | a step script was run by hand. Go through snakemake; the scripts are not meant to be called directly. |
+| `results/<name>/inputs/samples.tsv missing` | create the analysis first: `python3 src/analysis.py <name>`. |
+| a job cannot see a file that exists | it is outside the bound paths; add `--bind /path` to `apptainer-args` in the profile, symlink targets included. |
+| snakemake says the directory is locked | a previous run was killed. `snakemake --unlock --config analysis=<name>`, then run again. |
 
 ## 11. Using your own data
-1. Submit the samples with `python3 src/gui_serve.py`, or write `configs/samples.tsv` by hand. The form also
-   sets `#SBATCH --array=1-N` in the three per-sample steps, which is the easiest thing to forget. For your own
+1. Submit the samples with `python3 src/gui_serve.py`, or write `configs/samples.tsv` by hand. For your own
    FASTQs, put the absolute path in the `fastq_path` field (stored in `configs/samples/<sample_id>.json`);
-   `03_fetch` then length-filters that file instead of downloading an SRA run.
-2. In `src/build_refs.py`, set the genomic window, primers, HDR template, guide and `cut_offset_from_guide_5p` (SpCas9 17, AsCas12a 18).
+   `filter` then length-filters that file instead of downloading an SRA run. The sheet is validated before
+   anything runs: sample ids, duplicates, accession format, that the FASTQ path exists, and that one sample
+   is marked control.
+2. In `configs/param_configs.yaml` under `build_refs:`, set the genomic window, primers, HDR template, guide and `cut_offset_from_guide_5p` (SpCas9 17, AsCas12a 18).
 3. Match the nuclease elsewhere: CRISPRLungo `--cleavage_pos` = cut offset − 1, and `--window` must cover every intended mutation.
-4. Run `04_build_refs`, check `refs/design.json` (arm mismatches, insert length), then `05`, `06` and `07_summary`.
+4. Create the analysis, build the references, check `results/<name>/refs/design.json` (arm mismatches, insert length), then run the rest:
+   ```bash
+   python3 src/analysis.py my_run
+   snakemake --profile profiles/slurm --config analysis=my_run results/my_run/refs/design.json
+   snakemake --profile profiles/slurm --config analysis=my_run
+   ```
 
 ## 12. Which tool to use
 **ALPINE 8/10 · CRISPRLungo 7/10**, for ONT knock-in amplicons.

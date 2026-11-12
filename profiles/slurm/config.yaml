@@ -1,0 +1,13 @@
+executor: slurm
+jobs: 40
+software-deployment-method: apptainer
+apptainer-args: "--cleanenv"
+default-resources:
+  slurm_partition: GENOA
+  mem_mb: 8000
+  runtime: 60
+latency-wait: 120
+keep-going: true
+rerun-incomplete: true
+printshellcmds: true
+show-failed-logs: true

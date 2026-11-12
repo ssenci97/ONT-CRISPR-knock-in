@@ -27,11 +27,17 @@
   </section>
 
   <section id="tab-run" hidden>
-    <p class="lede">The default run uses the sample sheet and the parameters already in
-    <code>configs/param_configs.yaml</code>. Nothing else to choose.</p>
+    <p class="lede">Every run is an <strong>analysis</strong>. Name it, and its inputs, references, tool
+    outputs, logs and summary live together under <code>results/&lt;name&gt;/</code>. The sample sheet and
+    parameters are copied in when the analysis is created, so a later edit never changes a finished run.
+    Re-running an existing name resumes it and only recomputes what is missing.</p>
     <div class="bar">
-      <button id="run-sbatch" type="button" class="primary">Run default pipeline (SLURM)</button>
-      <button id="run-local" type="button">Run here, no scheduler</button>
+      <label>Analysis <input id="analysis" type="text" placeholder="e.g. trac_cd19_2026_11" size="28"></label>
+      <select id="pick"><option value="">— existing analyses —</option></select>
+    </div>
+    <div class="bar">
+      <button id="run-sbatch" type="button" class="primary">Run on SLURM</button>
+      <button id="run-local" type="button">Run here (no scheduler)</button>
       <button id="stop" type="button" class="ghost danger">Stop</button>
       <label class="auto"><input type="checkbox" id="auto" checked> auto-refresh</label>
     </div>
@@ -40,12 +46,15 @@
     <table id="steps"><thead><tr><th>step</th><th>logs</th><th>finished</th><th>last log</th><th>updated</th></tr></thead><tbody></tbody></table>
     <h3>Queue</h3>
     <pre id="squeue" class="small">—</pre>
-    <h3>run_all.sh output</h3>
+    <h3>snakemake output</h3>
     <pre id="runlog" class="small">—</pre>
   </section>
 
   <section id="tab-results" hidden>
-    <div class="bar"><button id="refresh-results" type="button">Refresh</button></div>
+    <div class="bar">
+      <select id="pick-results"><option value="">— pick an analysis —</option></select>
+      <button id="refresh-results" type="button">Refresh</button>
+    </div>
     <h3>Knock-in % per tool and sample</h3>
     <div id="matrix" class="panel">not available yet</div>
     <h3>Per sample</h3>

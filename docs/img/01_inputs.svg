@@ -87,7 +87,7 @@
 <polygon fill="none" stroke="#c9c4bb" points="326,-106 326,-128 455,-128 455,-106 326,-106"/>
 <text text-anchor="start" x="352.5" y="-114.8" font-family="Helvetica,sans-Serif" font-size="9.00">truncated_cutoff</text>
 <polygon fill="none" stroke="#c9c4bb" points="455,-106 455,-128 590,-128 590,-106 455,-106"/>
-<text text-anchor="start" x="469" y="-114.8" font-family="Helvetica,sans-Serif" font-size="9.00">applied in 07_summary</text>
+<text text-anchor="start" x="467" y="-114.8" font-family="Helvetica,sans-Serif" font-size="9.00">applied in rule summary</text>
 <polygon fill="none" stroke="#c9c4bb" points="244,-84 244,-106 326,-106 326,-84 244,-84"/>
 <text text-anchor="start" x="250" y="-92.8" font-family="Helvetica,sans-Serif" font-size="9.00">control sample</text>
 <polygon fill="none" stroke="#c9c4bb" points="326,-84 326,-106 455,-106 455,-84 326,-84"/>
