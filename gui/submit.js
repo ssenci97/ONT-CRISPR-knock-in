@@ -1,5 +1,5 @@
 const $ = (s, r = document) => r.querySelector(s);
-const state = { schema: null, params: {}, rows: [] };
+const state = { schema: null, params: {}, rows: [], example: false, stash: [] };
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -236,12 +236,28 @@ async function init() {
 async function loadSaved() {
   const { samples } = await (await fetch("/api/samples")).json();
   fill(samples);
+  state.stash = [];
+  setExample(false);
   status(samples.length ? `${samples.length} saved sample(s) loaded from configs/samples.tsv` : "No saved samples.", false);
 }
 
-function showExample() {
+function setExample(on) {
+  state.example = on;
+  $("#example span").textContent = on ? "Hide example data" : "Show example data";
+}
+
+function toggleExample() {
+  if (state.example) {
+    fill(state.stash);
+    state.stash = [];
+    setExample(false);
+    status("Example data hidden. Your previous entries were restored.", false);
+    return;
+  }
+  state.stash = state.rows.map(read).filter((r) => Object.values(r).some((v) => v && v !== "0"));
   fill((state.schema.example || []).map((x) => ({ ...x })));
-  status("Example data loaded: 5 ONT runs from PRJNA1257358 (TRAC CD19-CAR, AsCas12a). Save to use them.", false);
+  setExample(true);
+  status("Example data loaded: 5 public ONT runs (BioProject PRJNA1257358). Click again to hide them. Save to use them.", false);
 }
 
 async function submit() {
@@ -378,7 +394,7 @@ async function refreshResults() {
 
 for (const b of document.querySelectorAll("nav button")) b.addEventListener("click", () => tab(b.dataset.tab));
 $("#toggle-info").addEventListener("click", () => toggleInfo($("#info").hidden));
-$("#example").addEventListener("click", showExample);
+$("#example").addEventListener("click", toggleExample);
 $("#add").addEventListener("click", () => add());
 $("#reload").addEventListener("click", loadSaved);
 $("#submit").addEventListener("click", submit);
