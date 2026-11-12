@@ -106,8 +106,8 @@ def start_run(name, sbatch):
     if not os.path.exists(SAMPLES_TSV): return None, "no configs/samples.tsv -- submit samples first"
     rt = runtime()
     if sbatch and not rt["sbatch"]: return None, "sbatch not found on this machine"
-    if not rt["snakemake"]: return None, "snakemake not on PATH (conda env create -f envs/snakemake.yml)"
-    if not rt["apptainer"]: return None, "singularity not on PATH (snakemake calls singularity; on Orfeo it is the apptainer alias)"
+    if not rt["snakemake"]: return None, "snakemake not on PATH (conda activate kv_snakemake; create it once with conda env create -f envs/snakemake.yml)"
+    if not rt["apptainer"]: return None, "singularity not on PATH (module load singularity before starting the console)"
     try: a_dir, new, errs = analysis.create(name, ROOT)
     except ValueError as e: return None, str(e)
     if errs: return None, errs
@@ -219,7 +219,8 @@ def main():
     rt = runtime()
     log(f"runtime {rt['engine']}" + (f" ({rt['sif'] or rt['image']})" if rt['sif'] or rt['image'] else "") + f", sbatch {'yes' if rt['sbatch'] else 'no'}")
     if os.environ.get("KV_INSIDE"): log("warning: running inside the container; sbatch will not be reachable")
-    if not rt["snakemake"]: log("!! snakemake not on PATH: runs will be refused (conda env create -f envs/snakemake.yml)")
+    if not rt["snakemake"]: log("!! snakemake not on PATH: runs will be refused (conda activate kv_snakemake)")
+    if not rt["apptainer"]: log("!! singularity not on PATH: runs will be refused (module load singularity)")
     log(f"console at http://{p['host']}:{p['port']}/  (ctrl-c to stop)")
     try: srv.serve_forever()
     except KeyboardInterrupt: log("stopped")

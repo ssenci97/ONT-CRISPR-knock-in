@@ -77,7 +77,7 @@ push_image() {
 pull() {
   local app ref
   app="${KV_APPTAINER:-$(command -v singularity || command -v apptainer || true)}"
-  [ -n "$app" ] || { log "neither singularity nor apptainer is on PATH -- are you on the cluster?"; exit 1; }
+  [ -n "$app" ] || { log "neither singularity nor apptainer is on PATH -- run 'module load singularity' first"; exit 1; }
   ref="$image"
   if [ -s "$digests" ]; then ref="$(sed -n 's/^KV_IMAGE_REF=//p' "$digests" | tail -1)"
   else log "!! $digests missing: pulling by tag, not by digest"; fi
@@ -101,6 +101,7 @@ orfeo() {
   cat <<EOS
 [SLURM-INFO] on orfeo, from the repo root:
 
+  module load singularity
   export SINGULARITY_CACHEDIR=\$PWD/.singularity APPTAINER_CACHEDIR=\$PWD/.singularity
   singularity pull --force $sif docker://$ref
 

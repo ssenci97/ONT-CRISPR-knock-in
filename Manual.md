@@ -15,7 +15,7 @@ copying the software "in any form", so it could not ship inside the container im
 **Not included:** GREPore-seq, VAULT/IDMseq and longread_umi have no knock-in readout, so a KI % from them needs a hand-written metric. PANGEA's repository no longer exists.
 
 ## 2. Requirements
-- On the cluster: `snakemake` ≥ 8 with the SLURM executor plugin (`envs/snakemake.yml`), `singularity`/`apptainer`, `curl`. Nothing else — the tools and their environment are inside the image. No sudo, no GPU.
+- On the cluster: `snakemake` ≥ 8 with the SLURM executor plugin (`envs/snakemake.yml`), `singularity`/`apptainer` (`module load singularity` on Orfeo, in every new shell), `curl`. Nothing else — the tools and their environment are inside the image. No sudo, no GPU.
 - On a workstation, to build the image: `docker` (or `podman`).
 - About 15 GB free: 6.5 GB of reads, the rest intermediate and results. Add ~5 GB for the image.
 - Resources are per rule, not per script: `default-resources` in `profiles/slurm/config.yaml` sets partition GENOA and the modest defaults; `alpine` and `lungo` ask for 32 CPU / 128 GB / 24 h, `download` and `filter` 16 CPU / 32 GB. Change them in the Snakefile's `threads:`/`resources:` or override per run with `--set-resources`.

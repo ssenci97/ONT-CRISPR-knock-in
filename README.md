@@ -10,12 +10,20 @@ Scope: Oxford Nanopore sequencing of CRISPR knock-in PCR amplicons. Only tools w
 
 ## The console
 
-Three steps on Orfeo, none of which need a shell after the first:
+On Orfeo, from the repo root:
 
 ```bash
+module load singularity                 # 0. in every new shell, before anything else
+conda activate kv_snakemake             #    (once: conda env create -f envs/snakemake.yml)
 containers/build.sh pull                # 1. fetch the image once (~5 GB)
-python3 src/gui_serve.py                # 2. start the console on the login node
-ssh -L 8000:127.0.0.1:8000 <user>@orfeo # from your laptop, then open http://127.0.0.1:8000/
+hostname -f                             #    note the node, e.g. genoa001.hpc.rd.areasciencepark.it
+python3 src/gui_serve.py                # 2. start the console
+```
+
+From your laptop, then open http://127.0.0.1:8000/:
+
+```bash
+ssh -J <user>@195.14.102.215 -L 8000:127.0.0.1:8000 -N <user>@<that node>   # 3. tunnel
 ```
 
 ![console](docs/img/06_console.svg)
@@ -39,10 +47,12 @@ the pinned digest on the first run. The header line reports what it found (`imag
 apptainer ok · sbatch ok`) and the Run button refuses to start if any of the three is missing.
 **Run the console on the host, not inside the container** — it needs `sbatch`, which a container cannot reach.
 
-Two things that trip people up on a cluster. The tunnel must reach **the same login node** the console is
-running on: if `ssh user@orfeo` round-robins between nodes you will forward to the wrong one and get a
-blank page, so note the hostname from the console's shell (`hostname -f`) and `ssh -L 8000:127.0.0.1:8000
-<user>@<that host>`. And if port 8000 is already taken, change it once:
+Two things that trip people up on a cluster. The tunnel must end **on the node the console runs on**, and
+the console listens on `127.0.0.1` only (it submits SLURM jobs as you and has no login), so
+`ssh -L 8000:<node>:8000 <user>@<login>` is refused: the login node would connect to the node's network
+interface, where nothing listens. `-J` jumps through the login node and forwards to the node's own
+loopback instead. ssh into a compute node only works while you hold a job there. And if port 8000 is
+already taken, change it once:
 
 ```bash
 python3 src/gui_serve.py --yaml-out      # writes a [gui_serve] block to configs/param_configs.yaml
@@ -56,6 +66,7 @@ The pipeline is a [Snakemake](https://snakemake.readthedocs.io) workflow. Every 
 with a name, and everything it produces lives in `results/<name>/`.
 
 ```bash
+module load singularity                                                 # every new shell
 conda env create -f envs/snakemake.yml && conda activate kv_snakemake   # once
 containers/build.sh pull                                                # once, ~5 GB
 
@@ -104,6 +115,7 @@ Commits come from `configs/tools.tsv` and the build refuses to start if any is n
 ### On Orfeo (Singularity)
 
 ```bash
+module load singularity            # first, in every new shell
 cd <the repo root>                 # the pull writes a path relative to it
 containers/build.sh pull           # downloads and converts; verifies the .sif exists
 python3 src/analysis.py <name> && snakemake --profile profiles/slurm --config analysis=<name>
