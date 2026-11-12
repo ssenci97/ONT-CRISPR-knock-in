@@ -1,6 +1,7 @@
 #!/bin/bash
 ###################################### dependencies
 set -euo pipefail
+module load singularity
 KV_ROOT="${KV_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"; cd "$KV_ROOT"
 ###################################### parameters
 NAME=build
