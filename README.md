@@ -19,7 +19,7 @@ python3 src/gui_serve.py                # 2. start the console
 ```
 
 No `module load` or `conda activate` needed: the console runs `module load singularity` in a login shell
-if singularity is missing, and finds the `kv_snakemake` conda env (creating it from `envs/snakemake.yml`
+if singularity is missing, and finds the `kv_snakemake` conda env (creating it in `.kv_env/` from `envs/snakemake.yml`
 the first time) if snakemake is missing.
 
 From your laptop, then open http://127.0.0.1:8000/:

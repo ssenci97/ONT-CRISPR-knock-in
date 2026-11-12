@@ -8,4 +8,5 @@ containers/*.sif
 __pycache__/
 .singularity/
 .kv_bin/
+.kv_env/
 .snakemake/

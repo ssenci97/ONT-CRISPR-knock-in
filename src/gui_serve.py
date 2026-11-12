@@ -81,7 +81,7 @@ def save(samples):
     return dict(samples_tsv=os.path.relpath(SAMPLES_TSV, ROOT), sample_json=written, n=len(samples))
 
 ###################################### environment
-SNAKEMAKE_ENV, SNAKEMAKE_YML = "kv_snakemake", f"{ROOT}/envs/snakemake.yml"
+SNAKEMAKE_ENV, SNAKEMAKE_YML, LOCAL_ENV = "kv_snakemake", f"{ROOT}/envs/snakemake.yml", f"{ROOT}/.kv_env"
 LOGIN_SKIP = {"PWD", "OLDPWD", "SHLVL", "_", "PS1"}
 
 def login_env(cmd):
@@ -103,40 +103,49 @@ def find_conda():
     c = login_env("true").get("CONDA_EXE")
     return c if c and os.path.isfile(c) else None
 
-def env_prefixes(conda):
+def quick_prefixes(conda):
     home = os.path.expanduser("~")
-    out = [f"{home}/.conda/envs/{SNAKEMAKE_ENV}"]
+    out = [LOCAL_ENV, f"{home}/.conda/envs/{SNAKEMAKE_ENV}"]
     if os.environ.get("CONDA_PREFIX"): out.append(f"{os.environ['CONDA_PREFIX'].split('/envs/')[0]}/envs/{SNAKEMAKE_ENV}")
-    if conda:
-        out.append(f"{os.path.dirname(os.path.dirname(conda))}/envs/{SNAKEMAKE_ENV}")
-        try:
-            r = subprocess.run([conda, "env", "list", "--json"], capture_output=True, text=True, timeout=120)
-            out += [p for p in json.loads(r.stdout).get("envs", []) if os.path.basename(p) == SNAKEMAKE_ENV]
-        except (OSError, ValueError, subprocess.TimeoutExpired): pass
+    if conda: out.append(f"{os.path.dirname(os.path.dirname(conda))}/envs/{SNAKEMAKE_ENV}")
+    try:
+        import yaml
+        rc = yaml.safe_load(open(f"{home}/.condarc")) if os.path.exists(f"{home}/.condarc") else {}
+        out += [f"{os.path.expanduser(d)}/{SNAKEMAKE_ENV}" for d in (rc or {}).get("envs_dirs", [])]
+    except Exception: pass
     return out
+
+def conda_prefixes(conda):
+    log("asking conda for its env list (can take a minute on a shared filesystem)")
+    try:
+        r = subprocess.run([conda, "env", "list", "--json"], capture_output=True, text=True, timeout=300)
+        return [p for p in json.loads(r.stdout).get("envs", []) if os.path.basename(p) == SNAKEMAKE_ENV]
+    except (OSError, ValueError, subprocess.TimeoutExpired): log("!! conda env list failed or timed out"); return []
+
+def with_snakemake(prefixes): return next((p for p in prefixes if os.access(f"{p}/bin/snakemake", os.X_OK)), None)
 
 def ensure_singularity():
     if shutil.which("singularity"): return
-    log("singularity not on PATH: running 'module load singularity'")
+    log("loading singularity (module load singularity)")
     adopt(login_env("module load singularity"))
     if not shutil.which("singularity") and shutil.which("apptainer"):
         d = f"{ROOT}/.kv_bin"; os.makedirs(d, exist_ok=True)
         if not os.path.exists(f"{d}/singularity"): os.symlink(shutil.which("apptainer"), f"{d}/singularity")
         prepend_path(d)
-    log(f"singularity: {shutil.which('singularity') or 'still missing'}")
+    log(f"singularity: {shutil.which('singularity') or '!! still missing'}")
 
 def ensure_snakemake():
     if shutil.which("snakemake"): return
+    log(f"looking for the {SNAKEMAKE_ENV} conda env")
     conda = find_conda()
-    hit = next((p for p in env_prefixes(conda) if os.access(f"{p}/bin/snakemake", os.X_OK)), None)
+    hit = with_snakemake(quick_prefixes(conda)) or (with_snakemake(conda_prefixes(conda)) if conda else None)
     if not hit and conda:
-        log(f"conda env {SNAKEMAKE_ENV} not found: creating it from {os.path.relpath(SNAKEMAKE_YML, ROOT)} (a few minutes, once)")
-        r = subprocess.run([conda, "env", "create", "-y", "-f", SNAKEMAKE_YML])
-        if r.returncode: r = subprocess.run([conda, "env", "create", "-f", SNAKEMAKE_YML])
-        hit = next((p for p in env_prefixes(conda) if os.access(f"{p}/bin/snakemake", os.X_OK)), None)
+        log(f"not found: creating it at {os.path.relpath(LOCAL_ENV, ROOT)} from {os.path.relpath(SNAKEMAKE_YML, ROOT)} (several minutes, only the first time)")
+        subprocess.run([conda, "env", "create", "-p", LOCAL_ENV, "-f", SNAKEMAKE_YML])
+        hit = with_snakemake([LOCAL_ENV])
     if hit: prepend_path(f"{hit}/bin")
-    elif not conda: log("no conda found (looked at CONDA_EXE, PATH, ~/miniforge3, ~/miniconda3, ~/anaconda3, login shell)")
-    log(f"snakemake: {shutil.which('snakemake') or 'still missing'}")
+    elif not conda: log("!! no conda found (looked at CONDA_EXE, PATH, ~/miniforge3, ~/miniconda3, ~/anaconda3, login shell)")
+    log(f"snakemake: {shutil.which('snakemake') or '!! still missing'}")
 
 ###################################### run
 def runtime():
