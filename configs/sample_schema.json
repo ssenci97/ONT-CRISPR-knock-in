@@ -1,34 +1,37 @@
 {
-  "title": "KNOCKIN-VAL sample submission",
-  "sheet_columns": ["sample_id", "srr", "condition", "control"],
+  "title": "KNOCKIN-VAL",
+  "sheet_columns": ["sample_id", "fastq_path", "srr", "condition", "control"],
   "groups": [
     {
-      "name": "Sample sheet",
-      "help": "These four fields become one row of configs/samples.tsv and drive every step.",
+      "name": "Sample",
       "fields": [
-        {"id": "sample_id", "label": "Sample ID", "type": "text", "required": true, "pattern": "^[A-Za-z0-9_]+$", "help": "Short name, letters/digits/underscore only. Used for file names, e.g. dsDNA_r1."},
-        {"id": "srr", "label": "SRA run accession", "type": "text", "pattern": "^(SRR|ERR|DRR)[0-9]+$", "help": "Leave empty if you provide your own FASTQ instead."},
-        {"id": "condition", "label": "Condition", "type": "text", "required": true, "help": "What was done to the cells, e.g. rnp_dsDNA_donor."},
-        {"id": "control", "label": "Negative control", "type": "checkbox", "help": "Tick for mock / untreated samples. CRISPRLungo uses the first ticked sample as its control."}
+        {"id": "sample_id", "label": "Sample ID", "type": "text", "required": true, "pattern": "^[A-Za-z0-9_]+$", "help": "dsDNA_r1"},
+        {"id": "condition", "label": "Condition", "type": "text", "required": true, "help": "rnp_dsDNA_donor"},
+        {"id": "control", "label": "Negative control", "type": "checkbox", "help": "first ticked = CRISPRLungo control"}
+      ]
+    },
+    {
+      "name": "Reads",
+      "source": true,
+      "fields": [
+        {"id": "fastq_path", "label": "FASTQ path on the cluster", "type": "text", "help": "/orfeo/.../sample.fastq.gz"},
+        {"id": "srr", "label": "SRA run accession", "type": "text", "pattern": "^(SRR|ERR|DRR)[0-9]+$", "help": "SRR33387467"}
       ]
     },
     {
       "name": "Sequencing",
-      "help": "Recorded in configs/samples/<sample_id>.json. Not used by the tools, kept for provenance.",
       "fields": [
-        {"id": "fastq_path", "label": "Local FASTQ (if no SRA run)", "type": "text", "help": "Absolute path to a gzipped FASTQ. Copied to data/<sample_id>.fastq.gz by step 03."},
         {"id": "platform", "label": "Platform", "type": "select", "options": ["ONT", "PacBio HiFi"], "default": "ONT"},
-        {"id": "flowcell", "label": "Flow cell", "type": "text", "help": "e.g. FLO-MIN114 / R10.4.1"},
-        {"id": "basecaller", "label": "Basecaller model", "type": "text", "help": "e.g. dorado sup v5.0.0"}
+        {"id": "flowcell", "label": "Flow cell", "type": "text", "help": "FLO-MIN114"},
+        {"id": "basecaller", "label": "Basecaller model", "type": "text", "help": "dorado sup v5.0.0"}
       ]
     },
     {
       "name": "Wet lab",
-      "help": "Recorded in configs/samples/<sample_id>.json.",
       "fields": [
         {"id": "operator", "label": "Operator", "type": "text"},
         {"id": "experiment_date", "label": "Experiment date", "type": "date"},
-        {"id": "cell_type", "label": "Cell type", "type": "text", "help": "e.g. primary human T cells, donor 3"},
+        {"id": "cell_type", "label": "Cell type", "type": "text", "help": "primary T cells"},
         {"id": "target_locus", "label": "Target locus", "type": "text", "default": "TRAC"},
         {"id": "nuclease", "label": "Nuclease", "type": "select", "options": ["AsCas12a", "SpCas9", "other"], "default": "AsCas12a"},
         {"id": "guide_name", "label": "Guide name", "type": "text"},
@@ -39,5 +42,51 @@
         {"id": "notes", "label": "Notes", "type": "textarea"}
       ]
     }
-  ]
+  ],
+  "example": [
+    {"sample_id": "Mock_r1", "srr": "SRR33387478", "condition": "mock_electroporated", "control": "1", "platform": "ONT", "target_locus": "TRAC", "nuclease": "AsCas12a", "donor_format": "none"},
+    {"sample_id": "NoDonor_r1", "srr": "SRR33387470", "condition": "rnp_no_donor", "control": "0", "platform": "ONT", "target_locus": "TRAC", "nuclease": "AsCas12a", "donor_format": "none"},
+    {"sample_id": "dsDNA_r1", "srr": "SRR33387467", "condition": "rnp_dsDNA_donor", "control": "0", "platform": "ONT", "target_locus": "TRAC", "nuclease": "AsCas12a", "donor_format": "dsDNA"},
+    {"sample_id": "ssDNA_r1", "srr": "SRR33387464", "condition": "rnp_ssDNA_donor", "control": "0", "platform": "ONT", "target_locus": "TRAC", "nuclease": "AsCas12a", "donor_format": "ssDNA"},
+    {"sample_id": "ssCTS_r1", "srr": "SRR33387474", "condition": "rnp_ssCTS_donor", "control": "0", "platform": "ONT", "target_locus": "TRAC", "nuclease": "AsCas12a", "donor_format": "ssCTS"}
+  ],
+  "info": {
+    "inputs": [
+      {"name": "FASTQ (local)", "format": "gzipped FASTQ, one file per sample, absolute path on the cluster", "use": "preferred source; length-filtered by step 01 (seqkit) into results/<analysis>/data/<sample_id>.fastq.gz"},
+      {"name": "SRA run accession", "format": "SRR / ERR / DRR + digits", "use": "alternative source; step 01 checks the read count against ENA, downloads the .sra and converts it with fasterq-dump into the shared cache data/raw/<run>.fastq.gz"},
+      {"name": "sample_id", "format": "letters, digits, underscore", "use": "row key; names every file and job of the sample"},
+      {"name": "condition", "format": "free text", "use": "label carried into summary.tsv and the KI % matrix"},
+      {"name": "control", "format": "tick box (1/0)", "use": "the first ticked sample is the CRISPRLungo --control; at least one is required"},
+      {"name": "Wet-lab / sequencing fields", "format": "free text, dates, numbers", "use": "provenance only: stored in configs/samples/<sample_id>.json and copied into results/<analysis>/meta/; not read by the tools"},
+      {"name": "References (built by step 02)", "format": "TRAC_WT.fa, TRAC_KI.fa, CAR_insert.fa, alpine/ref.fa, alpine/config.tsv, design.json", "use": "WT and KI amplicons, CAR insert, guide, primers and homology arms, built from hg38 (Ensembl) and the paper supplement (refs.pmc)"}
+    ],
+    "params": [
+      {"key": "shared.ki_min_insert_frac", "meaning": "fraction of the insert a read must span to count as knock-in", "used_by": "ALPINE", "arg": "truncated_cutoff (job.yaml)", "also": "summarize.py: CRISPRLungo insert coverage threshold"},
+      {"key": "fetch.bioproject", "meaning": "BioProject queried on ENA for expected read counts", "used_by": "01_fetch (ena, download)", "arg": "ENA filereport accession="},
+      {"key": "fetch.min_len", "meaning": "minimum read length kept", "used_by": "01_fetch (filter)", "arg": "seqkit seq -m"},
+      {"key": "fetch.max_len", "meaning": "maximum read length kept", "used_by": "01_fetch (filter)", "arg": "seqkit seq -M"},
+      {"key": "refs.region", "meaning": "hg38 region downloaded from Ensembl", "used_by": "02_refs", "arg": "rest.ensembl.org/sequence/region/human/<region>"},
+      {"key": "refs.pmc", "meaning": "paper whose supplement holds the HDR templates", "used_by": "02_refs", "arg": "Europe PMC supplementaryFiles"},
+      {"key": "build_refs.genomic_fasta", "meaning": "cached hg38 window", "used_by": "02_refs (build_refs.py)", "arg": "--yaml-in"},
+      {"key": "build_refs.genomic_start_1based", "meaning": "1-based coordinate of the first base of genomic_fasta", "used_by": "02_refs", "arg": "--yaml-in"},
+      {"key": "build_refs.templates_xlsx", "meaning": "supplement table with the HDR templates", "used_by": "02_refs", "arg": "--yaml-in"},
+      {"key": "build_refs.template_title", "meaning": "row of the supplement table used as donor", "used_by": "02_refs", "arg": "--yaml-in"},
+      {"key": "build_refs.guide", "meaning": "crRNA spacer", "used_by": "02_refs, then CRISPRLungo", "arg": "CRISPRlungo positional <guide>"},
+      {"key": "build_refs.cut_offset_from_guide_5p", "meaning": "cut position from the guide 5' end (SpCas9 17, AsCas12a 18)", "used_by": "02_refs", "arg": "--yaml-in"},
+      {"key": "build_refs.primer_f_full / primer_r_full", "meaning": "full amplicon primers", "used_by": "02_refs, then ALPINE", "arg": "primer_1 / primer_2 (job.yaml)"},
+      {"key": "build_refs.primer_f_specific / primer_r_specific", "meaning": "gene-specific part of the primers", "used_by": "02_refs", "arg": "--yaml-in"},
+      {"key": "alpine.primer_check_length", "meaning": "bases at each read end searched for the primers", "used_by": "03_alpine", "arg": "primer_check_length (job.yaml)"},
+      {"key": "alpine.data_type", "meaning": "read technology; nanopore also patches ALPINE's minimap2 -ax map-hifi to map-ont", "used_by": "03_alpine", "arg": "data_type (job.yaml)"},
+      {"key": "lungo.cleavage_pos", "meaning": "cut site within the guide", "used_by": "04_lungo", "arg": "CRISPRlungo --cleavage_pos"},
+      {"key": "lungo.window", "meaning": "bp around the cut scanned for edits", "used_by": "04_lungo", "arg": "CRISPRlungo --window"},
+      {"key": "threads, mem_mb, runtime", "meaning": "per-rule resources in the Snakefile; get_best_node picks the node at submit time", "used_by": "every step", "arg": "sbatch --cpus-per-task, --mem, -t; ALPINE coresMin/ramMin; CRISPRlungo -t"}
+    ],
+    "commands": [
+      {"step": "01_fetch", "tool": "seqkit", "cmd": "seqkit seq -j <threads> -g -G - -m <fetch.min_len> -M <fetch.max_len> <raw.fastq.gz> -o data/<sample_id>.fastq.gz"},
+      {"step": "01_fetch", "tool": "fasterq-dump", "cmd": "fasterq-dump -e <threads> -t <tmp> -O data/raw <run>.sra"},
+      {"step": "03_alpine", "tool": "ALPINE (cwltool)", "cmd": "cwltool --no-container aav_per_sample_workflow.cwl job.yaml   # job.yaml: fastqfile, reffile, config, sample_name, primer_1, primer_2, primer_check_length, data_type, truncated_cutoff, five_prime_HA_seq, three_prime_HA_seq"},
+      {"step": "04_lungo", "tool": "CRISPRLungo", "cmd": "CRISPRlungo TRAC_WT.fa <sample.fastq.gz> <out> <guide> --cleavage_pos <lungo.cleavage_pos> --window <lungo.window> --control <control.fastq.gz> --induced_sequence_path TRAC_KI.fa --integration_file CAR_insert.fa -t <threads>"},
+      {"step": "05_summary", "tool": "summarize.py", "cmd": "python3 src/summarize.py --analysis-dir results/<analysis>   # KI % per tool and sample"}
+    ]
+  }
 }

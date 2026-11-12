@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Serve the KNOCKIN-VAL console on localhost: submit samples, launch the pipeline, follow it and read the results."""
-import argparse, datetime, json, os, resource, shutil, signal, subprocess, sys, time
+import argparse, datetime, json, os, re, resource, shutil, signal, subprocess, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -17,6 +17,8 @@ STATIC = {"/": ("submit.html", "text/html"), "/submit.css": ("submit.css", "text
 RESULTS = f"{ROOT}/results"
 DEFAULT_SIF = f"{ROOT}/containers/ont-knockin-val.sif"
 STEPS = ["01_fetch", "02_refs", "03_alpine", "04_lungo", "05_summary"]
+SHIM, KV_BIN = f"{ROOT}/src/sbatch_pick.sh", f"{ROOT}/.kv_bin"
+FASTQ_EXT = (".fastq", ".fastq.gz", ".fq", ".fq.gz")
 PARAMS = dict(host="127.0.0.1", port=8000, profile="profiles/slurm")
 
 def run_log(name): return f"{RESULTS}/{name}/run.log"
@@ -129,9 +131,9 @@ def ensure_singularity():
     log("loading singularity (module load singularity)")
     adopt(login_env("module load singularity"))
     if not shutil.which("singularity") and shutil.which("apptainer"):
-        d = f"{ROOT}/.kv_bin"; os.makedirs(d, exist_ok=True)
-        if not os.path.exists(f"{d}/singularity"): os.symlink(shutil.which("apptainer"), f"{d}/singularity")
-        prepend_path(d)
+        os.makedirs(KV_BIN, exist_ok=True)
+        if not os.path.exists(f"{KV_BIN}/singularity"): os.symlink(shutil.which("apptainer"), f"{KV_BIN}/singularity")
+        prepend_path(KV_BIN)
     log(f"singularity: {shutil.which('singularity') or '!! still missing'}")
 
 def ensure_snakemake():
@@ -147,10 +149,21 @@ def ensure_snakemake():
     elif not conda: log("!! no conda found (looked at CONDA_EXE, PATH, ~/miniforge3, ~/miniconda3, ~/anaconda3, login shell)")
     log(f"snakemake: {shutil.which('snakemake') or '!! still missing'}")
 
+def ensure_node_pick():
+    if os.environ.get("NODE_PICK", "1") != "1": log("node pick off (NODE_PICK=0): jobs go to the profile partition"); return
+    if not shutil.which("sbatch"): return
+    os.makedirs(KV_BIN, exist_ok=True); link = f"{KV_BIN}/sbatch"
+    if os.path.islink(link) and os.readlink(link) != SHIM: os.remove(link)
+    if not os.path.lexists(link): os.symlink(SHIM, link)
+    if os.path.dirname(shutil.which("sbatch")) != KV_BIN: prepend_path(KV_BIN)
+    log(f"node pick on: sbatch -> {os.path.relpath(SHIM, ROOT)} (get_best_node per job)")
+
+def node_pick(): return os.path.realpath(shutil.which("sbatch") or "") == SHIM
+
 ###################################### run
 def runtime():
     sif = os.environ.get("KV_SIF") or (DEFAULT_SIF if os.path.exists(DEFAULT_SIF) else None)
-    return dict(sif=sif, image=sif, sbatch=bool(shutil.which("sbatch")), snakemake=shutil.which("snakemake"),
+    return dict(sif=sif, image=sif, sbatch=bool(shutil.which("sbatch")), node_pick=node_pick(), snakemake=shutil.which("snakemake"),
                 apptainer=shutil.which("singularity"), engine="apptainer" if sif else "apptainer (pull on first run)")
 
 def read_state(name):
@@ -166,25 +179,25 @@ def alive(pid):
     except OSError: return False
     return state != "Z"
 
-def start_run(name, sbatch):
+def start_run(name):
     for a in analyses():
         st = read_state(a["name"])
         if st.get("pid") and alive(st["pid"]): return None, f"analysis {a['name']} is still running"
     if not os.path.exists(SAMPLES_TSV): return None, "no configs/samples.tsv -- submit samples first"
     rt = runtime()
-    if sbatch and not rt["sbatch"]: return None, "sbatch not found on this machine"
+    if not rt["sbatch"]: return None, "sbatch not found: start the console on the cluster login node"
     if not rt["snakemake"]: return None, "snakemake not on PATH (conda activate kv_snakemake; create it once with conda env create -f envs/snakemake.yml)"
     if not rt["apptainer"]: return None, "singularity not on PATH (module load singularity before starting the console)"
     try: a_dir, new, errs = analysis.create(name, ROOT)
     except ValueError as e: return None, str(e)
     if errs: return None, errs
-    env = dict(os.environ)
-    cmd = ["snakemake", "--profile", Handler.profile if sbatch else "profiles/local",
+    env = dict(os.environ, KV_ANALYSIS=name, KV_ROOT=ROOT)
+    cmd = ["snakemake", "--profile", Handler.profile,
            "--directory", ROOT, "--config", f"analysis={name}"]
     with open(run_log(name), "a") as fh:
         fh.write(f"\n===== {datetime.datetime.now():%F %T} {' '.join(cmd)} =====\n"); fh.flush()
         pr = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT, start_new_session=True)
-    st = dict(analysis=name, pid=pr.pid, mode="sbatch" if sbatch else "local", started_at=f"{datetime.datetime.now():%F %T}",
+    st = dict(analysis=name, pid=pr.pid, mode="slurm", node_pick=rt["node_pick"], started_at=f"{datetime.datetime.now():%F %T}",
               engine=rt["engine"], image=rt["sif"], new=new,
               samples=json.load(open(f"{a_dir}/inputs/analysis.json"))["samples"])
     json.dump(st, open(run_state(name), "w"), indent=2)
@@ -204,27 +217,106 @@ def tail(path, n=40):
         fh.seek(0, os.SEEK_END); size = fh.tell(); fh.seek(max(0, size - 65536))
         return "\n".join(fh.read().decode("utf-8", "replace").splitlines()[-n:])
 
-def step_state(name):
-    out = []
-    for step in STEPS:
-        d = f"{RESULTS}/{name}/logs/{step}"
-        files = sorted((f"{d}/{f}" for f in os.listdir(d)), key=os.path.getmtime) if os.path.isdir(d) else []
-        files = [f for f in files if not f.endswith(".bench.tsv")]
-        done = sum(1 for f in files if "elapsed" in tail(f, 3))
-        out.append(dict(step=step, logs=len(files), finished=done,
-                        last=os.path.basename(files[-1]) if files else None,
-                        updated=f"{datetime.datetime.fromtimestamp(os.path.getmtime(files[-1])):%F %T}" if files else None))
+def last_section(name):
+    t = open(run_log(name), errors="replace").read() if os.path.exists(run_log(name)) else ""
+    return t[t.rfind("\n===== ") + 1:] if "\n===== " in t else t
+
+def sheet(name):
+    inp = f"{RESULTS}/{name}/inputs"
+    if not os.path.exists(f"{inp}/samples.tsv"): return [], {}
+    rows = analysis.read_sheet(f"{inp}/samples.tsv")
+    for r in rows:
+        p = f"{inp}/samples/{r['sample_id']}.json"
+        if os.path.exists(p): r.update({k: v for k, v in json.load(open(p)).items() if not r.get(k)})
+    try:
+        import yaml; P = yaml.safe_load(open(f"{inp}/params.yaml")) or {}
+    except Exception: P = {}
+    return rows, P
+
+def planned_jobs(name):
+    A = f"{RESULTS}/{name}"; rows, P = sheet(name)
+    L = lambda step, f: f"{A}/logs/{step}/{f}.log"
+    runs = sorted({r["srr"] for r in rows if r.get("srr") and not r.get("fastq_path")})
+    jobs = {s: [] for s in STEPS}
+    if runs and P.get("fetch", {}).get("bioproject"):
+        jobs["01_fetch"].append(("ena", f"{ROOT}/data/meta/{P['fetch']['bioproject']}_ena.tsv", L("01_fetch", "ena"), False))
+    jobs["01_fetch"] += [(f"download {r}", f"{ROOT}/data/raw/{r}.fastq.gz", L("01_fetch", f"download_{r}"), True) for r in runs]
+    ids = [r["sample_id"] for r in rows]
+    jobs["01_fetch"] += [(f"filter {s}", f"{A}/data/stats/{s}.tsv", L("01_fetch", f"filter_{s}"), True) for s in ids]
+    jobs["02_refs"] = [("refs", f"{A}/refs/design.json", L("02_refs", "refs"), True)]
+    jobs["03_alpine"] = [(f"alpine {s}", f"{A}/ALPINE/{s}/{s}_read_classification.txt", L("03_alpine", s), True) for s in ids]
+    jobs["04_lungo"] = [(f"lungo {s}", f"{A}/CRISPRLungo/{s}/results/read_classification.txt", L("04_lungo", s), True) for s in ids]
+    jobs["05_summary"] = [("summary", f"{A}/summary_matrix.tsv", L("05_summary", "summary"), True)]
+    return jobs
+
+def failed_logs(section):
+    out, inside = set(), False
+    for l in section.splitlines():
+        if l.startswith("Error in rule "): inside = True
+        elif inside and l.strip().startswith("log:"): out.add(os.path.normpath(os.path.join(ROOT, l.split("log:", 1)[1].split()[0]))); inside = False
+        elif inside and not l.startswith(" "): inside = False
     return out
+
+def step_state(name, running):
+    failed, out = failed_logs(last_section(name)), []
+    for step, jobs in planned_jobs(name).items():
+        rows = []
+        for label, output, lg, footer in jobs:
+            has_log = os.path.exists(lg)
+            if os.path.exists(output) and (not footer or not has_log or "elapsed" in tail(lg, 3)): st = "done"
+            elif os.path.normpath(lg) in failed: st = "failed"
+            elif has_log and running: st = "running"
+            elif has_log: st = "stopped"
+            else: st = "waiting"
+            rows.append(dict(job=label, state=st, log=os.path.relpath(lg, ROOT),
+                             updated=f"{datetime.datetime.fromtimestamp(os.path.getmtime(lg)):%F %T}" if has_log else None,
+                             tail=tail(lg, 15) if st in ("failed", "stopped") else ""))
+        count = lambda k: sum(r["state"] == k for r in rows)
+        out.append(dict(step=step, total=len(rows), done=count("done"), failed=count("failed"), running=count("running"), jobs=rows))
+    return out
+
+def progress(section):
+    m = re.findall(r"(\d+) of (\d+) steps \((\d+(?:\.\d+)?)%\) done", section)
+    return dict(done=int(m[-1][0]), total=int(m[-1][1]), pct=float(m[-1][2])) if m else None
+
+def queue(section):
+    m = re.findall(r"SLURM run ID: ([0-9a-f-]+)", section)
+    if not m or not shutil.which("squeue"): return []
+    r = subprocess.run(["squeue", "--me", "-h", "-n", m[-1], "-o", "%i|%k|%T|%M|%P|%R"], capture_output=True, text=True)
+    keys = ("job", "rule", "state", "time", "partition", "where")
+    return [dict(zip(keys, l.split("|", 5)), rule=l.split("|")[1].replace("rule_", "").replace("_wildcards_", " ")) for l in r.stdout.splitlines() if l.count("|") >= 5]
+
+def outcome(name, running, section):
+    if running: return "running"
+    if os.path.exists(f"{RESULTS}/{name}/summary_matrix.tsv"): return "done"
+    if not section.strip(): return "idle"
+    return "failed" if re.search(r"^(Error|WorkflowError|Exiting because)", section, re.M) else "stopped"
 
 def status(name):
     st = read_state(name) if name else {}
     running = bool(st.get("pid") and alive(st["pid"]))
-    q = ""
-    if st.get("mode") == "sbatch" and shutil.which("squeue"):
-        r = subprocess.run(["squeue", "--me", "-o", "%.10i %.12j %.2t %.10M %R"], capture_output=True, text=True)
-        q = r.stdout.strip()
-    return dict(runtime=runtime(), analyses=analyses(), analysis=name, state=st, running=running, squeue=q,
-                steps=step_state(name) if name else [], log=tail(run_log(name)) if name else "")
+    sec = last_section(name) if name else ""
+    return dict(runtime=runtime(), analyses=analyses(), analysis=name, state=st, running=running, outcome=outcome(name, running, sec) if name else "idle",
+                progress=progress(sec), queue=queue(sec) if running else [], steps=step_state(name, running) if name else [],
+                node_log=tail(f"{RESULTS}/{name}/logs/node_pick.log", 20) if name else "", log=tail(run_log(name)) if name else "")
+
+def params():
+    try:
+        import yaml; return yaml.safe_load(open(PARAM_YAML)) or {}
+    except Exception: return {}
+
+def path_info(p):
+    p = os.path.expanduser(p or "")
+    if not p: p = os.path.expanduser("~") + "/"
+    out = dict(path=p, exists=os.path.exists(p), file=os.path.isfile(p), size=os.path.getsize(p) if os.path.isfile(p) else None, entries=[])
+    d = p if p.endswith("/") else os.path.dirname(p)
+    try:
+        for e in sorted(os.scandir(d), key=lambda e: e.name)[:500]:
+            if e.name.startswith("."): continue
+            if e.is_dir(): out["entries"].append(os.path.join(d, e.name) + "/")
+            elif e.name.endswith(FASTQ_EXT): out["entries"].append(os.path.join(d, e.name))
+    except OSError: pass
+    return out
 
 def results(name):
     out = dict(matrix=None, rows=[], meta={})
@@ -262,6 +354,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/samples": self.send_json(200, dict(samples=load_samples()))
         elif path == "/api/status": self.send_json(200, status(self.query("analysis")))
         elif path == "/api/results": self.send_json(200, results(self.query("analysis")))
+        elif path == "/api/params": self.send_json(200, params())
+        elif path == "/api/path": self.send_json(200, path_info(self.query("p")))
         else: self.send_json(404, dict(error="not found"))
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -270,7 +364,7 @@ class Handler(BaseHTTPRequestHandler):
             if errs: return self.send_json(400, dict(errors=errs))
             return self.send_json(200, save(body["samples"]))
         if self.path == "/api/run":
-            st, err = start_run((body.get("analysis") or "").strip(), bool(body.get("sbatch")))
+            st, err = start_run((body.get("analysis") or "").strip())
             if err: return self.send_json(400, dict(errors=err if isinstance(err, list) else [err]))
             return self.send_json(200, st)
         if self.path == "/api/stop": return self.send_json(200, dict(stopped=stop_run((body.get("analysis") or "").strip())))
@@ -282,10 +376,10 @@ def main():
     p = yaml_io(dict(PARAMS), ap.parse_args())
     for k, v in p.items(): log(f"param {k}={v}")
     Handler.profile = p["profile"]
-    ensure_singularity(); ensure_snakemake()
+    ensure_singularity(); ensure_snakemake(); ensure_node_pick()
     srv =ThreadingHTTPServer((p["host"], int(p["port"])), Handler)
     rt = runtime()
-    log(f"runtime {rt['engine']}" + (f" ({rt['sif'] or rt['image']})" if rt['sif'] or rt['image'] else "") + f", sbatch {'yes' if rt['sbatch'] else 'no'}")
+    log(f"runtime {rt['engine']}" + (f" ({rt['sif'] or rt['image']})" if rt['sif'] or rt['image'] else "") + f", sbatch {'yes' if rt['sbatch'] else 'no'}, node pick {'on' if rt['node_pick'] else 'off'}")
     if os.environ.get("KV_INSIDE"): log("warning: running inside the container; sbatch will not be reachable")
     if not rt["snakemake"]: log("!! snakemake not on PATH: runs will be refused (conda activate kv_snakemake)")
     if not rt["apptainer"]: log("!! singularity not on PATH: runs will be refused (module load singularity)")

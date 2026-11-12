@@ -1,64 +1,164 @@
 const $ = (s, r = document) => r.querySelector(s);
-const state = { schema: null, rows: [] };
+const state = { schema: null, params: {}, rows: [] };
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = text;
+  return n;
+}
+function icon(name) {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("class", "ic");
+  const u = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  u.setAttribute("href", `#i-${name}`);
+  s.append(u);
+  return s;
+}
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const human = (b) => (b > 1e9 ? `${(b / 1e9).toFixed(2)} GB` : b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} kB`);
+
+function table(head, rows, valCols = []) {
+  const wrap = el("div", "tbl"), t = el("table"), th = el("thead"), hr = el("tr"), tb = el("tbody");
+  head.forEach((h) => hr.append(el("th", null, h)));
+  th.append(hr);
+  rows.forEach((r) => {
+    const tr = el("tr");
+    r.forEach((c, i) => tr.append(el("td", valCols.includes(i) ? "val" : null, c)));
+    tb.append(tr);
+  });
+  t.append(th, tb); wrap.append(t);
+  return wrap;
+}
+
+function paramValue(key) {
+  const [sec, first] = key.split(" ")[0].split(".");
+  const out = [];
+  for (const k of key.split(" / ").map((x, i) => (i ? x.trim() : first))) {
+    const v = (state.params[sec] || {})[k];
+    if (v !== undefined) out.push(String(v));
+  }
+  return out.join(" / ") || "—";
+}
+
+function renderInfo() {
+  const info = state.schema.info || {}, box = $("#info");
+  box.textContent = "";
+  box.append(el("h2", null, "Inputs and parameters"),
+    el("p", null, "What each input is, which step reads it, and how every variable in configs/param_configs.yaml maps to the original tool arguments. Values are the current ones; each analysis freezes its own copy in results/<analysis>/inputs/params.yaml."));
+  box.append(el("h4", null, "Input data types"));
+  box.append(table(["Input", "Format", "How it is used"], (info.inputs || []).map((x) => [x.name, x.format, x.use])));
+  box.append(el("h4", null, "Variables"));
+  box.append(table(["Variable", "Current value", "Meaning", "Used by", "Original argument"],
+    (info.params || []).map((x) => [x.key, paramValue(x.key), x.meaning + (x.also ? `; also ${x.also}` : ""), x.used_by, x.arg]), [1]));
+  box.append(el("h4", null, "Original command lines"));
+  for (const c of info.commands || []) {
+    box.append(el("p", null, `${c.step} · ${c.tool}`), el("pre", "cmd", c.cmd));
+  }
+}
+
+function toggleInfo(show) {
+  $("#info").hidden = !show;
+  $("#toggle-info span").textContent = show ? "Hide info" : "Show info";
+  store.set("kv_info", show ? "1" : "0");
+}
 
 function field(f, value) {
-  const wrap = document.createElement("div");
-  wrap.className = "field" + (f.type === "textarea" ? " wide" : "");
+  const wrap = el("div", "field" + (f.type === "textarea" ? " wide" : ""));
   const id = `${f.id}_${Math.random().toString(36).slice(2, 8)}`;
-  const label = document.createElement("label");
+  const label = el("label", null, f.label);
   label.htmlFor = id;
-  label.textContent = f.label;
   if (f.required) label.insertAdjacentHTML("beforeend", ' <span class="req">*</span>');
-  let el;
+  let input;
   if (f.type === "select") {
-    el = document.createElement("select");
-    for (const o of f.options) el.add(new Option(o, o));
-    el.value = value ?? f.default ?? f.options[0];
+    input = el("select");
+    for (const o of f.options) input.add(new Option(o, o));
+    input.value = value || f.default || f.options[0];
   } else if (f.type === "textarea") {
-    el = document.createElement("textarea");
-    el.value = value ?? "";
+    input = el("textarea");
+    input.value = value ?? "";
+  } else if (f.type === "checkbox") {
+    input = el("input", "tick");
+    input.type = "checkbox";
+    input.checked = ["1", "true", true, 1].includes(value);
   } else {
-    el = document.createElement("input");
-    el.type = f.type;
-    if (f.step) el.step = f.step;
-    if (f.type === "checkbox") el.checked = ["1", "true", true, 1].includes(value);
-    else el.value = value ?? f.default ?? "";
+    input = el("input");
+    input.type = f.type;
+    if (f.step) input.step = f.step;
+    input.value = value ?? f.default ?? "";
   }
-  el.id = id;
-  el.dataset.field = f.id;
-  wrap.append(label, el);
-  if (f.help) {
-    const h = document.createElement("div");
-    h.className = "hint";
-    h.textContent = f.help;
-    wrap.append(h);
-  }
+  input.id = id;
+  input.dataset.field = f.id;
+  if (f.help && f.type !== "checkbox") input.placeholder = f.help;
+  if (f.type === "checkbox") {
+    const c = el("label", "check"); c.append(input, document.createTextNode(f.help || ""));
+    wrap.append(label, c);
+  } else wrap.append(label, input);
   return wrap;
+}
+
+function pathField(f, value) {
+  const wrap = field(f, value), input = $("input", wrap), hint = el("p", "hint");
+  const dl = el("datalist"); dl.id = `${input.id}_dl`; input.setAttribute("list", dl.id); input.autocomplete = "off";
+  const check = debounce(async () => {
+    const r = await (await fetch(`/api/path?p=${encodeURIComponent(input.value.trim())}`)).json();
+    dl.textContent = "";
+    r.entries.slice(0, 200).forEach((e) => dl.append(new Option(e)));
+    const v = input.value.trim();
+    hint.className = "hint";
+    input.classList.remove("bad");
+    if (!v) hint.textContent = "Type an absolute path; folders and FASTQ files are suggested.";
+    else if (r.file) { hint.textContent = `✓ found · ${human(r.size)}`; hint.classList.add("ok"); }
+    else if (r.exists) hint.textContent = "Folder: keep typing to pick a FASTQ file.";
+    else { hint.textContent = "✗ no such file on the cluster"; hint.classList.add("err"); input.classList.add("bad"); }
+  }, 250);
+  input.addEventListener("input", check);
+  input.addEventListener("focus", check);
+  wrap.append(dl, hint);
+  if (value) check();
+  return wrap;
+}
+
+function sourceGroup(g, values) {
+  const sec = el("div", "group"), head = el("div", "group-head"), seg = el("div", "seg small"), fields = el("div", "fields");
+  head.append(el("h4", null, g.name), seg);
+  const local = g.fields.find((f) => f.id === "fastq_path"), sra = g.fields.find((f) => f.id === "srr");
+  const fLocal = pathField(local, values.fastq_path), fSra = field(sra, values.srr);
+  fields.append(fLocal, fSra);
+  const modes = { local: ["Local file", "folder", fLocal, "srr"], sra: ["SRA", "cloud", fSra, "fastq_path"] };
+  const set = (m, clear) => {
+    for (const [k, [, , node, other]] of Object.entries(modes)) {
+      node.hidden = k !== m;
+      if (k === m && clear) { const o = $(`[data-field="${other}"]`, fields); o.value = ""; o.dispatchEvent(new Event("input")); }
+    }
+    for (const b of seg.children) b.classList.toggle("on", b.dataset.mode === m);
+  };
+  for (const [k, [label, ic]] of Object.entries(modes)) {
+    const b = el("button"); b.type = "button"; b.dataset.mode = k; b.append(icon(ic), document.createTextNode(label));
+    b.addEventListener("click", () => set(k, true));
+    seg.append(b);
+  }
+  set(values.srr && !values.fastq_path ? "sra" : "local", false);
+  sec.append(head, fields);
+  return sec;
 }
 
 function card(values = {}) {
   const node = $("#card").content.firstElementChild.cloneNode(true);
   const groups = $(".groups", node);
   for (const g of state.schema.groups) {
-    const sec = document.createElement("div");
-    sec.className = "group";
-    const h = document.createElement("h3");
-    h.textContent = g.name;
-    sec.append(h);
-    if (g.help) {
-      const p = document.createElement("p");
-      p.className = "help";
-      p.textContent = g.help;
-      sec.append(p);
-    }
-    const fields = document.createElement("div");
-    fields.className = "fields";
+    if (g.source) { groups.append(sourceGroup(g, values)); continue; }
+    const sec = el("div", "group"), fields = el("div", "fields");
+    sec.append(el("h4", null, g.name));
     for (const f of g.fields) fields.append(field(f, values[f.id]));
     sec.append(fields);
     groups.append(sec);
   }
-  const title = $(".title", node);
-  const sid = $('[data-field="sample_id"]', node);
+  const title = $(".title", node), sid = $('[data-field="sample_id"]', node);
   const retitle = () => (title.textContent = sid.value.trim() || "New sample");
   sid.addEventListener("input", retitle);
   retitle();
@@ -66,18 +166,14 @@ function card(values = {}) {
     node.remove();
     state.rows = state.rows.filter((n) => n !== node);
   });
-  $('[data-act="dup"]', node).addEventListener("click", () => {
-    const v = read(node);
-    v.sample_id = "";
-    add(v);
-  });
+  $('[data-act="dup"]', node).addEventListener("click", () => add({ ...read(node), sample_id: "" }));
   return node;
 }
 
 function read(node) {
   const out = {};
-  for (const el of node.querySelectorAll("[data-field]"))
-    out[el.dataset.field] = el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value.trim();
+  for (const e of node.querySelectorAll("[data-field]"))
+    out[e.dataset.field] = e.type === "checkbox" ? (e.checked ? "1" : "0") : e.value.trim();
   return out;
 }
 
@@ -88,54 +184,44 @@ function add(values) {
   return node;
 }
 
-function status(text, isError) {
-  const el = $("#status");
-  el.hidden = false;
-  el.textContent = text;
-  el.classList.toggle("err", !!isError);
-}
-
-async function load() {
-  state.schema = await (await fetch("/api/schema")).json();
-  document.title = state.schema.title;
-  $("h1").textContent = state.schema.title;
-  const { samples } = await (await fetch("/api/samples")).json();
+function fill(samples) {
   $("#samples").textContent = "";
   state.rows = [];
-  if (samples.length) samples.forEach(add);
-  else add();
-  status(`${samples.length} sample(s) loaded from configs/samples.tsv`, false);
+  (samples.length ? samples : [{}]).forEach(add);
+}
+
+function status(text, isError) {
+  const s = $("#status");
+  s.hidden = false;
+  s.textContent = text;
+  s.classList.toggle("err", !!isError);
+}
+
+async function init() {
+  state.schema = await (await fetch("/api/schema")).json();
+  state.params = await (await fetch("/api/params")).json();
+  renderInfo();
+  toggleInfo(store.get("kv_info") !== "0");
+  fill([]);
+}
+
+async function loadSaved() {
+  const { samples } = await (await fetch("/api/samples")).json();
+  fill(samples);
+  status(samples.length ? `${samples.length} saved sample(s) loaded from configs/samples.tsv` : "No saved samples.", false);
+}
+
+function showExample() {
+  fill((state.schema.example || []).map((x) => ({ ...x })));
+  status("Example data loaded: 5 ONT runs from PRJNA1257358 (TRAC CD19-CAR, AsCas12a). Save to use them.", false);
 }
 
 async function submit() {
   const samples = state.rows.map(read);
-  const res = await fetch("/api/samples", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ samples }),
-  });
+  const res = await fetch("/api/samples", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ samples }) });
   const body = await res.json();
   if (!res.ok) return status("Not saved:\n  " + (body.errors || [body.error]).join("\n  "), true);
-  status(
-    [
-      `Saved ${body.n} sample(s).`,
-      `  ${body.samples_tsv}`,
-      ...body.sample_json.map((p) => `  ${p}`),
-      "",
-      "Next: open the Run tab, name the analysis and press Run",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-    false
-  );
-}
-
-
-function el(tag, cls, text) {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
-  return n;
+  status([`Saved ${body.n} sample(s).`, `  ${body.samples_tsv}`, ...body.sample_json.map((p) => `  ${p}`)].join("\n"), false);
 }
 
 function tab(name) {
@@ -146,24 +232,61 @@ function tab(name) {
 }
 
 function describeRuntime(rt) {
-  const where = rt.sif ? `image ${rt.sif}` : "image pulled by snakemake on first run";
-  const ok = (x) => (x ? "ok" : "MISSING");
-  return `${where} · snakemake ${ok(rt.snakemake)} · apptainer ${ok(rt.apptainer)} · sbatch ${ok(rt.sbatch)}`;
+  const ok = (x) => (x ? "✓" : "✗");
+  return `${rt.sif ? rt.sif.split("/").pop() : "image pulled on first run"} · snakemake ${ok(rt.snakemake)} · singularity ${ok(rt.apptainer)} · sbatch ${ok(rt.sbatch)} · get_best_node ${rt.node_pick ? "on" : "off"}`;
 }
 
-function currentAnalysis() { return $("#analysis").value.trim(); }
+const currentAnalysis = () => $("#analysis").value.trim();
+const badge = (s, text) => el("span", `badge ${s}`, text || s);
 
 function fillPickers(list, running) {
   for (const sel of [$("#pick"), $("#pick-results")]) {
     const keep = sel.value;
     sel.textContent = "";
-    sel.append(el("option", null, sel.id === "pick" ? "— existing analyses —" : "— pick an analysis —"));
-    for (const a of list) {
-      const o = el("option", null, `${a.name}${a.done ? " ✓" : ""}${a.name === running ? " (running)" : ""}`);
-      o.value = a.name; sel.append(o);
-    }
+    sel.append(new Option(sel.id === "pick" ? "—" : "Analysis", ""));
+    for (const a of list) sel.append(new Option(`${a.name}${a.done ? " ✓" : ""}${a.name === running ? " (running)" : ""}`, a.name));
     sel.value = keep;
   }
+}
+
+function bar(parts, label) {
+  const w = el("div", "bar-wrap"), b = el("div", "bar");
+  for (const [cls, pct] of parts) { const i = el("i", cls); i.style.width = `${pct}%`; b.append(i); }
+  w.append(b, el("span", "bar-label", label));
+  return w;
+}
+
+function renderSteps(steps) {
+  const box = $("#steps");
+  box.textContent = "";
+  if (!steps.length) { box.append(el("p", "muted item", "Pick or name an analysis.")); return; }
+  for (const s of steps) {
+    const d = el("details"), su = el("summary");
+    const st = s.failed ? "failed" : s.total && s.done === s.total ? "done" : s.running ? "running" : s.done ? "stopped" : "waiting";
+    const pct = (n) => (s.total ? (100 * n) / s.total : 0);
+    su.append(el("span", "step-name", s.step), badge(st, st === "stopped" ? "partial" : st),
+      bar([["ok", pct(s.done)], ["bad", pct(s.failed)], ["run", pct(s.running)]], `${s.done}/${s.total}${s.failed ? ` · ${s.failed} failed` : ""}`));
+    su.lastChild.style.flex = "1"; su.lastChild.style.marginTop = "0";
+    const jobs = el("div", "jobs");
+    for (const j of s.jobs) {
+      const r = el("div", "job");
+      r.append(badge(j.state), el("span", null, j.job), el("code", null, j.log), el("span", "when", j.updated || ""));
+      if (j.tail) r.append(el("pre", null, j.tail));
+      jobs.append(r);
+    }
+    d.append(su, jobs);
+    if (s.failed) d.open = true;
+    box.append(d);
+  }
+}
+
+function renderQueue(q, running) {
+  const box = $("#squeue");
+  box.textContent = "";
+  if (!q.length) { box.append(el("p", "muted item", running ? "No jobs of this run in the queue right now." : "—")); return; }
+  const wrap = el("div", "item");
+  wrap.append(table(["Job", "Rule", "State", "Time", "Partition", "Node / reason"], q.map((x) => [x.job, x.rule, x.state, x.time, x.partition, x.where])));
+  box.append(wrap);
 }
 
 async function refreshStatus() {
@@ -171,33 +294,33 @@ async function refreshStatus() {
   const s = await (await fetch(`/api/status?analysis=${encodeURIComponent(name)}`)).json();
   fillPickers(s.analyses || [], s.running ? (s.state || {}).analysis : null);
   $("#runtime").textContent = describeRuntime(s.runtime);
-  const st = s.state || {};
-  const badge = s.running ? '<span class="badge go">running</span>' : '<span class="badge idle">idle</span>';
-  $("#run-state").innerHTML = st.started_at
-    ? `${badge} <strong>${st.analysis}</strong> · started ${st.started_at} · ${st.mode} · ${(st.samples || []).length} samples · results/${st.analysis}/`
-    : name ? `${badge} ${name}: not started yet` : `${badge} name an analysis to begin`;
-  const tb = $("#steps tbody");
-  tb.textContent = "";
-  for (const st2 of s.steps) {
-    const tr = el("tr");
-    tr.append(el("td", null, st2.step), el("td", "num", st2.logs), el("td", "num", st2.finished),
-              el("td", null, st2.last || "—"), el("td", null, st2.updated || "—"));
-    tb.append(tr);
+  const st = s.state || {}, rs = $("#run-state");
+  rs.textContent = "";
+  rs.append(badge(s.outcome));
+  if (st.started_at) rs.append(el("strong", null, st.analysis), el("span", "muted", `started ${st.started_at} · ${(st.samples || []).length} samples · results/${st.analysis}/`));
+  else if (name) rs.append(el("strong", null, name));
+  const ov = $("#overall");
+  ov.hidden = !s.progress;
+  if (s.progress) {
+    ov.querySelector("i").style.width = `${s.progress.pct}%`;
+    ov.querySelector("i").className = s.outcome === "failed" ? "bad" : s.outcome === "done" ? "ok" : "";
+    ov.querySelector(".bar-label").textContent = `${s.progress.done} of ${s.progress.total} jobs · ${s.progress.pct}%`;
   }
-  $("#squeue").textContent = s.squeue || "—";
+  $("#run-sbatch").disabled = s.running;
+  $("#stop").disabled = !s.running;
+  renderSteps(s.steps || []);
+  renderQueue(s.queue || [], s.running);
+  $("#nodelog").textContent = s.node_log || "—";
   $("#runlog").textContent = s.log || "—";
   return s;
 }
 
-async function launch(sbatch) {
-  const analysis = currentAnalysis();
-  if (!analysis) { $("#run-state").textContent = "give the analysis a name first"; return; }
-  const res = await fetch("/api/run", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sbatch, analysis }),
-  });
+async function launch() {
+  const analysis = currentAnalysis(), rs = $("#run-state");
+  if (!analysis) { rs.textContent = ""; rs.append(badge("failed", "name required")); return; }
+  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis }) });
   const body = await res.json();
-  if (!res.ok) { $("#run-state").textContent = (body.errors || ["failed"]).join("; "); return; }
+  if (!res.ok) { rs.textContent = ""; rs.append(badge("failed", "not started"), el("span", null, (body.errors || ["failed"]).join("; "))); return; }
   refreshStatus();
 }
 
@@ -205,50 +328,40 @@ async function refreshResults() {
   const name = $("#pick-results").value || currentAnalysis();
   const r = await (await fetch(`/api/results?analysis=${encodeURIComponent(name)}`)).json();
   const m = $("#matrix");
-  if (!name) m.textContent = "pick an analysis";
-  else if (!r.matrix) m.textContent = `not available yet — results/${name}/summary_matrix.tsv appears when the summary step finishes`;
+  m.textContent = "";
+  if (!name || !r.matrix) m.append(el("p", "muted", "—"));
   else {
-    m.textContent = "";
-    const t = el("table"), head2 = el("thead"), hr = el("tr");
-    r.matrix[0].forEach((c) => hr.append(el("th", null, c)));
-    head2.append(hr); t.append(head2);
-    const tb = el("tbody");
-    r.matrix.slice(1).forEach((row) => {
-      const tr = el("tr");
-      row.forEach((c, i) => tr.append(el("td", i ? "num" : null, c)));
-      tb.append(tr);
-    });
-    t.append(tb); m.append(t);
+    const t = table(r.matrix[0], r.matrix.slice(1));
+    t.querySelectorAll("tbody td:not(:first-child)").forEach((td) => td.classList.add("num"));
+    m.append(t);
   }
   const box = $("#meta");
   box.textContent = "";
   const ids = Object.keys(r.meta);
-  if (!ids.length) { box.append(el("p", "lede", "no results/meta/*.json yet")); return; }
+  if (!ids.length) { box.append(el("p", "muted", "—")); return; }
   for (const id of ids) {
-    const d = el("details"), su = el("summary", null, id), meta = r.meta[id];
-    const rows = r.rows.filter((x) => x.sample_id === id)
-      .map((x) => `${x.tool}: ${x.ki_pct}% (${x.ki_reads}/${x.reads_used})`).join("  ·  ");
+    const d = el("details"), su = el("summary", null, id);
+    const rows = r.rows.filter((x) => x.sample_id === id).map((x) => `${x.tool}: ${x.ki_pct}% (${x.ki_reads}/${x.reads_used})`).join("  ·  ");
     if (rows) su.textContent = `${id} — ${rows}`;
-    d.append(su, Object.assign(el("pre"), { textContent: JSON.stringify(meta, null, 2) }));
+    d.append(su, el("pre", null, JSON.stringify(r.meta[id], null, 2)));
     box.append(d);
   }
 }
 
 for (const b of document.querySelectorAll("nav button")) b.addEventListener("click", () => tab(b.dataset.tab));
-$("#run-sbatch").addEventListener("click", () => launch(true));
-$("#run-local").addEventListener("click", () => launch(false));
+$("#toggle-info").addEventListener("click", () => toggleInfo($("#info").hidden));
+$("#example").addEventListener("click", showExample);
+$("#add").addEventListener("click", () => add());
+$("#reload").addEventListener("click", loadSaved);
+$("#submit").addEventListener("click", submit);
+$("#run-sbatch").addEventListener("click", launch);
 $("#stop").addEventListener("click", async () => {
-  await fetch("/api/stop", { method: "POST", headers: { "Content-Type": "application/json" },
-                             body: JSON.stringify({ analysis: currentAnalysis() }) });
+  await fetch("/api/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis: currentAnalysis() }) });
   refreshStatus();
 });
 $("#pick").addEventListener("change", () => { if ($("#pick").value) { $("#analysis").value = $("#pick").value; refreshStatus(); } });
 $("#pick-results").addEventListener("change", refreshResults);
 $("#refresh-results").addEventListener("click", refreshResults);
 setInterval(() => { if ($("#auto").checked && !$("#tab-run").hidden) refreshStatus(); }, 5000);
-
-$("#add").addEventListener("click", () => add());
-$("#reload").addEventListener("click", load);
-$("#submit").addEventListener("click", submit);
-load();
+init();
 refreshStatus();

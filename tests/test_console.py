@@ -38,7 +38,7 @@ def get(url): return json.load(urllib.request.urlopen(url))
 
 def test_run_creates_and_scopes_an_analysis(server):
     base, tmp = server
-    st, code = post(f"{base}/api/run", analysis="run_one", sbatch=False)
+    st, code = post(f"{base}/api/run", analysis="run_one")
     assert code == 200 and st["analysis"] == "run_one" and st["new"]
     a = tmp / "results/run_one"
     assert (a / "inputs/samples.tsv").read_text() == SHEET
@@ -50,22 +50,22 @@ def test_run_creates_and_scopes_an_analysis(server):
 
 def test_second_run_is_refused_while_one_is_live(server):
     base, _ = server
-    post(f"{base}/api/run", analysis="run_one", sbatch=False)
-    body, code = post(f"{base}/api/run", analysis="run_two", sbatch=False)
+    post(f"{base}/api/run", analysis="run_one")
+    body, code = post(f"{base}/api/run", analysis="run_two")
     assert code == 400 and "still running" in body["errors"][0]
 
 def test_bad_sheet_and_bad_name_are_refused(server):
     base, tmp = server
     (tmp / "configs/samples.tsv").write_text(SHEET.replace("mock\t1", "mock\t0"))
-    body, code = post(f"{base}/api/run", analysis="run_bad", sbatch=False)
+    body, code = post(f"{base}/api/run", analysis="run_bad")
     assert code == 400 and any("control" in e for e in body["errors"])
     assert not (tmp / "results/run_bad/inputs").exists()
-    body, code = post(f"{base}/api/run", analysis="../escape", sbatch=False)
+    body, code = post(f"{base}/api/run", analysis="../escape")
     assert code == 400
 
 def test_results_are_read_per_analysis(server):
     base, tmp = server
-    post(f"{base}/api/run", analysis="run_one", sbatch=False)
+    post(f"{base}/api/run", analysis="run_one")
     a = tmp / "results/run_one"
     (a / "summary_matrix.tsv").write_text("tool\tA\nALPINE\t1.5\n")
     (a / "summary.tsv").write_text("tool\tsample_id\tki_pct\nALPINE\tA\t1.5\n")
@@ -82,3 +82,32 @@ def test_snakemake_env_is_found_without_activation(tmp_path, monkeypatch):
     monkeypatch.setattr(g, "find_conda", lambda: None)
     g.ensure_snakemake()
     assert shutil.which("snakemake") == str(env_bin / "snakemake")
+
+def test_progress_counts_outputs_and_failures(server):
+    base, tmp = server
+    post(f"{base}/api/run", analysis="run_one")
+    a = tmp / "results/run_one"
+    for d in ("data/stats", "logs/01_fetch", "logs/03_alpine"): os.makedirs(a / d, exist_ok=True)
+    (a / "data/stats/A.tsv").write_text("x\n"); (a / "logs/01_fetch/filter_A.log").write_text("[SLURM-INFO] 2026 | elapsed 00:00:01\n")
+    (a / "logs/03_alpine/B.log").write_text("boom\n")
+    with open(a / "run.log", "a") as fh:
+        fh.write("SLURM run ID: 0123abcd-0000\n3 of 9 steps (33%) done\nError in rule alpine:\n    jobid: 4\n    log: results/run_one/logs/03_alpine/B.log (check log file(s) for error details)\n")
+    s = get(f"{base}/api/status?analysis=run_one")
+    steps = {x["step"]: x for x in s["steps"]}
+    assert steps["01_fetch"]["total"] == 4 and steps["01_fetch"]["done"] == 1
+    assert steps["03_alpine"]["failed"] == 1 and steps["03_alpine"]["total"] == 2
+    assert s["progress"] == {"done": 3, "total": 9, "pct": 33.0}
+
+def test_path_lists_fastq_and_dirs(server):
+    base, tmp = server
+    (tmp / "reads").mkdir(); (tmp / "reads/a.fastq.gz").write_text("@r\nA\n+\nI\n"); (tmp / "reads/x.txt").write_text("")
+    r = get(f"{base}/api/path?p={tmp}/reads/")
+    assert r["entries"] == [f"{tmp}/reads/a.fastq.gz"]
+    r = get(f"{base}/api/path?p={tmp}/reads/a.fastq.gz")
+    assert r["file"] and r["size"] > 0
+
+def test_run_is_refused_without_sbatch(server, monkeypatch):
+    base, _ = server
+    monkeypatch.setattr(g, "runtime", lambda: dict(sbatch=False, snakemake="x", apptainer="x", sif=None, engine="", node_pick=False))
+    body, code = post(f"{base}/api/run", analysis="run_one")
+    assert code == 400 and "sbatch" in body["errors"][0]

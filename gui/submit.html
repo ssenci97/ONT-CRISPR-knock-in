@@ -3,70 +3,93 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KNOCKIN-VAL console</title>
+<title>KNOCKIN-VAL</title>
 <link rel="stylesheet" href="submit.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-dup" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.8h6V7M6.5 7l1 12.2h9l1-12.2M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-reload" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4.2h-4.2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.6v.1"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .5-8 6 6 0 0 0-11.5-1.3A4.7 4.7 0 0 0 7 18.5z"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M10 4l1.6 4.4L16 10l-4.4 1.6L10 16l-1.6-4.4L4 10l4.4-1.6zM17.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-tray" viewBox="0 0 24 24"><path d="M4 13.5l2.2-7.2A2 2 0 0 1 8.1 5h7.8a2 2 0 0 1 1.9 1.3l2.2 7.2V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18zM4 13.5h4.5l1 2h5l1-2H20"/></symbol>
+</svg>
+
 <header>
-  <h1>KNOCKIN-VAL</h1>
-  <nav><button type="button" data-tab="samples" class="on">1. Samples</button><button type="button" data-tab="run">2. Run</button><button type="button" data-tab="results">3. Results</button></nav>
-  <p id="runtime" class="runtime">checking runtime…</p>
+  <div class="brand"><h1>KNOCKIN-VAL</h1><p id="runtime" class="runtime">…</p></div>
+  <nav class="seg" role="tablist"><button type="button" data-tab="samples" class="on">Samples</button><button type="button" data-tab="run">Run</button><button type="button" data-tab="results">Results</button></nav>
 </header>
 
 <main>
   <section id="tab-samples">
-    <p class="lede">One card per sample. Saving writes <code>configs/samples.tsv</code> and one
-    <code>configs/samples/&lt;sample_id&gt;.json</code>, and sets the SLURM array size for every per-sample step.</p>
-    <div id="samples"></div>
-    <div class="bar">
-      <button id="add" type="button">Add sample</button>
-      <button id="reload" type="button" class="ghost">Reload from disk</button>
-      <button id="submit" type="button" class="primary">Save samples</button>
+    <div class="toolbar">
+      <button id="toggle-info" type="button" class="pill black"><svg class="ic"><use href="#i-info"/></svg><span>Hide info</span></button>
+      <button id="example" type="button" class="pill purple"><svg class="ic"><use href="#i-sparkles"/></svg>Show example data</button>
     </div>
-    <pre id="status" hidden></pre>
+    <div id="info" class="card info"></div>
+
+    <div id="samples"></div>
+    <div class="toolbar">
+      <button id="add" type="button" class="pill"><svg class="ic"><use href="#i-plus"/></svg>Add sample</button>
+      <button id="reload" type="button" class="pill plain"><svg class="ic"><use href="#i-tray"/></svg>Load saved</button>
+      <span class="grow"></span>
+      <button id="submit" type="button" class="pill blue"><svg class="ic"><use href="#i-save"/></svg>Save samples</button>
+    </div>
+    <pre id="status" class="note" hidden></pre>
   </section>
 
   <section id="tab-run" hidden>
-    <p class="lede">Every run is an <strong>analysis</strong>. Name it, and its inputs, references, tool
-    outputs, logs and summary live together under <code>results/&lt;name&gt;/</code>. The sample sheet and
-    parameters are copied in when the analysis is created, so a later edit never changes a finished run.
-    Re-running an existing name resumes it and only recomputes what is missing.</p>
-    <div class="bar">
-      <label>Analysis <input id="analysis" type="text" placeholder="e.g. trac_cd19_2026_11" size="28"></label>
-      <select id="pick"><option value="">— existing analyses —</option></select>
+    <div class="card">
+      <div class="row">
+        <div class="field grow"><label for="analysis">Analysis name</label><input id="analysis" type="text" placeholder="trac_cd19_2026_11" autocomplete="off"></div>
+        <div class="field"><label for="pick">Existing</label><select id="pick"><option value="">—</option></select></div>
+      </div>
+      <div class="toolbar">
+        <button id="run-sbatch" type="button" class="pill blue"><svg class="ic"><use href="#i-play"/></svg>Run on SLURM</button>
+        <button id="stop" type="button" class="pill red"><svg class="ic"><use href="#i-stop"/></svg>Stop</button>
+        <span class="grow"></span>
+        <label class="switch"><input type="checkbox" id="auto" checked><span></span>Auto-refresh</label>
+      </div>
+      <div id="run-state"></div>
+      <div id="overall" class="bar-wrap" hidden><div class="bar"><i></i></div><span class="bar-label"></span></div>
     </div>
-    <div class="bar">
-      <button id="run-sbatch" type="button" class="primary">Run on SLURM</button>
-      <button id="run-local" type="button">Run here (no scheduler)</button>
-      <button id="stop" type="button" class="ghost danger">Stop</button>
-      <label class="auto"><input type="checkbox" id="auto" checked> auto-refresh</label>
-    </div>
-    <div id="run-state" class="panel"></div>
     <h3>Steps</h3>
-    <table id="steps"><thead><tr><th>step</th><th>logs</th><th>finished</th><th>last log</th><th>updated</th></tr></thead><tbody></tbody></table>
-    <h3>Queue</h3>
-    <pre id="squeue" class="small">—</pre>
-    <h3>snakemake output</h3>
-    <pre id="runlog" class="small">—</pre>
+    <div id="steps" class="card list"></div>
+    <h3>SLURM queue</h3>
+    <div id="squeue" class="card list"><p class="muted">—</p></div>
+    <h3>Node choice (get_best_node)</h3>
+    <pre id="nodelog" class="note small">—</pre>
+    <h3>Snakemake log</h3>
+    <pre id="runlog" class="note small">—</pre>
   </section>
 
   <section id="tab-results" hidden>
-    <div class="bar">
-      <select id="pick-results"><option value="">— pick an analysis —</option></select>
-      <button id="refresh-results" type="button">Refresh</button>
+    <div class="toolbar">
+      <select id="pick-results" class="inline"><option value="">Analysis</option></select>
+      <button id="refresh-results" type="button" class="pill plain"><svg class="ic"><use href="#i-reload"/></svg>Refresh</button>
     </div>
-    <h3>Knock-in % per tool and sample</h3>
-    <div id="matrix" class="panel">not available yet</div>
-    <h3>Per sample</h3>
+    <h3>KI %</h3>
+    <div id="matrix" class="card">—</div>
+    <h3>Samples</h3>
     <div id="meta"></div>
   </section>
 </main>
 
 <template id="card">
-  <section class="card">
+  <section class="card sample">
     <div class="card-head">
       <span class="title">New sample</span>
-      <span class="actions"><button type="button" data-act="dup" class="ghost">Duplicate</button><button type="button" data-act="del" class="ghost danger">Remove</button></span>
+      <span class="actions">
+        <button type="button" data-act="dup" class="icon-btn" title="Duplicate"><svg class="ic"><use href="#i-dup"/></svg></button>
+        <button type="button" data-act="del" class="icon-btn danger" title="Remove"><svg class="ic"><use href="#i-trash"/></svg></button>
+      </span>
     </div>
     <div class="groups"></div>
   </section>

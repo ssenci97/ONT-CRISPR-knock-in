@@ -34,7 +34,7 @@ def submitted(s):
     return json.load(open(p)) if os.path.exists(p) else {}
 
 def raw_fastq(w):
-    return submitted(w.sample).get("fastq_path") or f"data/raw/{SAMPLES[w.sample]['srr']}.fastq.gz"
+    return SAMPLES[w.sample].get("fastq_path") or submitted(w.sample).get("fastq_path") or f"data/raw/{SAMPLES[w.sample]['srr']}.fastq.gz"
 
 ###################################### targets
 rule all:
