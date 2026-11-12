@@ -7,4 +7,5 @@ containers/*.sif
 *.lock
 __pycache__/
 .singularity/
+.kv_bin/
 .snakemake/

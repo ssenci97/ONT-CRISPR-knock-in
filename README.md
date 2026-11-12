@@ -13,12 +13,14 @@ Scope: Oxford Nanopore sequencing of CRISPR knock-in PCR amplicons. Only tools w
 On Orfeo, from the repo root:
 
 ```bash
-module load singularity                 # 0. in every new shell, before anything else
-conda activate kv_snakemake             #    (once: conda env create -f envs/snakemake.yml)
-containers/build.sh pull                # 1. fetch the image once (~5 GB)
+containers/build.sh pull                # 1. fetch the image once (~5 GB); loads singularity itself
 hostname -f                             #    note the node, e.g. genoa001.hpc.rd.areasciencepark.it
 python3 src/gui_serve.py                # 2. start the console
 ```
+
+No `module load` or `conda activate` needed: the console runs `module load singularity` in a login shell
+if singularity is missing, and finds the `kv_snakemake` conda env (creating it from `envs/snakemake.yml`
+the first time) if snakemake is missing.
 
 From your laptop, then open http://127.0.0.1:8000/:
 

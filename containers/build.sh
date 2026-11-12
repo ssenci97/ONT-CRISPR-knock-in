@@ -1,7 +1,6 @@
 #!/bin/bash
 ###################################### dependencies
 set -euo pipefail
-module load singularity
 KV_ROOT="${KV_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"; cd "$KV_ROOT"
 ###################################### parameters
 NAME=build
@@ -78,7 +77,12 @@ push_image() {
 pull() {
   local app ref
   app="${KV_APPTAINER:-$(command -v singularity || command -v apptainer || true)}"
-  [ -n "$app" ] || { log "neither singularity nor apptainer is on PATH -- run 'module load singularity' first"; exit 1; }
+  if [ -z "$app" ]; then
+    log "singularity not on PATH: trying 'module load singularity' in a login shell"
+    app="$(bash -lc 'module load singularity >/dev/null 2>&1; command -v singularity || command -v apptainer' 2>/dev/null || true)"
+  fi
+  [ -n "$app" ] || { log "no singularity/apptainer, even after 'module load singularity' -- are you on the cluster?"; exit 1; }
+  log "using $app"
   ref="$image"
   if [ -s "$digests" ]; then ref="$(sed -n 's/^KV_IMAGE_REF=//p' "$digests" | tail -1)"
   else log "!! $digests missing: pulling by tag, not by digest"; fi

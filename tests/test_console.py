@@ -73,3 +73,12 @@ def test_results_are_read_per_analysis(server):
     r = get(f"{base}/api/results?analysis=run_one")
     assert r["matrix"] == [["tool", "A"], ["ALPINE", "1.5"]] and r["meta"]["A"]["sample_id"] == "A"
     assert get(f"{base}/api/results?analysis=nope")["matrix"] is None
+
+def test_snakemake_env_is_found_without_activation(tmp_path, monkeypatch):
+    env_bin = tmp_path / ".conda/envs/kv_snakemake/bin"; env_bin.mkdir(parents=True)
+    (env_bin / "snakemake").write_text("#!/bin/sh\nexit 0\n"); (env_bin / "snakemake").chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path)); monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    for k in ("CONDA_EXE", "MAMBA_EXE", "CONDA_PREFIX"): monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(g, "find_conda", lambda: None)
+    g.ensure_snakemake()
+    assert shutil.which("snakemake") == str(env_bin / "snakemake")

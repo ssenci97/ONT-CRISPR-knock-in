@@ -80,6 +80,64 @@ def save(samples):
     log(f"wrote {os.path.relpath(SAMPLES_TSV, ROOT)} ({len(samples)} samples) and {len(written)} sample json files")
     return dict(samples_tsv=os.path.relpath(SAMPLES_TSV, ROOT), sample_json=written, n=len(samples))
 
+###################################### environment
+SNAKEMAKE_ENV, SNAKEMAKE_YML = "kv_snakemake", f"{ROOT}/envs/snakemake.yml"
+LOGIN_SKIP = {"PWD", "OLDPWD", "SHLVL", "_", "PS1"}
+
+def login_env(cmd):
+    try: r = subprocess.run(["bash", "-lc", f"{cmd} >/dev/null 2>&1; env -0"], capture_output=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired): return {}
+    return dict(kv.split("=", 1) for kv in r.stdout.decode("utf-8", "replace").split("\0") if "=" in kv)
+
+def adopt(env):
+    for k, v in env.items():
+        if k not in LOGIN_SKIP and not k.startswith("BASH_FUNC_") and os.environ.get(k) != v: os.environ[k] = v
+
+def prepend_path(d): os.environ["PATH"] = f"{d}:{os.environ.get('PATH', '')}"
+
+def find_conda():
+    home = os.path.expanduser("~")
+    for c in [os.environ.get("CONDA_EXE"), os.environ.get("MAMBA_EXE"), shutil.which("conda"), shutil.which("mamba")] + \
+             [f"{home}/{b}/bin/conda" for b in ("miniforge3", "mambaforge", "miniconda3", "anaconda3", ".local/miniforge3")]:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK): return c
+    c = login_env("true").get("CONDA_EXE")
+    return c if c and os.path.isfile(c) else None
+
+def env_prefixes(conda):
+    home = os.path.expanduser("~")
+    out = [f"{home}/.conda/envs/{SNAKEMAKE_ENV}"]
+    if os.environ.get("CONDA_PREFIX"): out.append(f"{os.environ['CONDA_PREFIX'].split('/envs/')[0]}/envs/{SNAKEMAKE_ENV}")
+    if conda:
+        out.append(f"{os.path.dirname(os.path.dirname(conda))}/envs/{SNAKEMAKE_ENV}")
+        try:
+            r = subprocess.run([conda, "env", "list", "--json"], capture_output=True, text=True, timeout=120)
+            out += [p for p in json.loads(r.stdout).get("envs", []) if os.path.basename(p) == SNAKEMAKE_ENV]
+        except (OSError, ValueError, subprocess.TimeoutExpired): pass
+    return out
+
+def ensure_singularity():
+    if shutil.which("singularity"): return
+    log("singularity not on PATH: running 'module load singularity'")
+    adopt(login_env("module load singularity"))
+    if not shutil.which("singularity") and shutil.which("apptainer"):
+        d = f"{ROOT}/.kv_bin"; os.makedirs(d, exist_ok=True)
+        if not os.path.exists(f"{d}/singularity"): os.symlink(shutil.which("apptainer"), f"{d}/singularity")
+        prepend_path(d)
+    log(f"singularity: {shutil.which('singularity') or 'still missing'}")
+
+def ensure_snakemake():
+    if shutil.which("snakemake"): return
+    conda = find_conda()
+    hit = next((p for p in env_prefixes(conda) if os.access(f"{p}/bin/snakemake", os.X_OK)), None)
+    if not hit and conda:
+        log(f"conda env {SNAKEMAKE_ENV} not found: creating it from {os.path.relpath(SNAKEMAKE_YML, ROOT)} (a few minutes, once)")
+        r = subprocess.run([conda, "env", "create", "-y", "-f", SNAKEMAKE_YML])
+        if r.returncode: r = subprocess.run([conda, "env", "create", "-f", SNAKEMAKE_YML])
+        hit = next((p for p in env_prefixes(conda) if os.access(f"{p}/bin/snakemake", os.X_OK)), None)
+    if hit: prepend_path(f"{hit}/bin")
+    elif not conda: log("no conda found (looked at CONDA_EXE, PATH, ~/miniforge3, ~/miniconda3, ~/anaconda3, login shell)")
+    log(f"snakemake: {shutil.which('snakemake') or 'still missing'}")
+
 ###################################### run
 def runtime():
     sif = os.environ.get("KV_SIF") or (DEFAULT_SIF if os.path.exists(DEFAULT_SIF) else None)
@@ -215,7 +273,8 @@ def main():
     p = yaml_io(dict(PARAMS), ap.parse_args())
     for k, v in p.items(): log(f"param {k}={v}")
     Handler.profile = p["profile"]
-    srv = ThreadingHTTPServer((p["host"], int(p["port"])), Handler)
+    ensure_singularity(); ensure_snakemake()
+    srv =ThreadingHTTPServer((p["host"], int(p["port"])), Handler)
     rt = runtime()
     log(f"runtime {rt['engine']}" + (f" ({rt['sif'] or rt['image']})" if rt['sif'] or rt['image'] else "") + f", sbatch {'yes' if rt['sbatch'] else 'no'}")
     if os.environ.get("KV_INSIDE"): log("warning: running inside the container; sbatch will not be reachable")
