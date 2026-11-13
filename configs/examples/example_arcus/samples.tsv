@@ -1,0 +1,4 @@
+sample_id	fastq_path	srr	condition	control_tier
+CD3KO_control_r1		SRR31290119	arcus_nuclease_only_no_donor	no_donor
+B2Mneg_CD3pos_r1		SRR31290121	arcus_aav6_2.8kb_skip_RHA500_sorted_B2Mneg_CD3pos	treated
+B2Mneg_CD3neg_r1		SRR31290120	arcus_aav6_2.8kb_skip_RHA500_sorted_B2Mneg_CD3neg	treated

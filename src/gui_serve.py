@@ -74,8 +74,7 @@ def save(samples):
     with open(SAMPLES_TSV, "w") as fh:
         fh.write("\t".join(cols) + "\n")
         for s in samples:
-            fh.write("\t".join("1" if c == "control" and str(s.get(c)) in ("1", "true", "True") else
-                               "0" if c == "control" else str(s.get(c, "") or "") for c in cols) + "\n")
+            fh.write("\t".join(analysis.tier(s) if c == "control_tier" else str(s.get(c, "") or "") for c in cols) + "\n")
     written = []
     for s in samples:
         d = {k: v for k, v in s.items() if v not in ("", None)}

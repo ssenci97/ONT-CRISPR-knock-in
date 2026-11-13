@@ -20,9 +20,18 @@ The console's info panel shows the same definitions, together with the current v
 - **SRA run accession** (`SRR` / `ERR` / `DRR` followed by digits): The alternative source, for public data. Step `01_fetch` checks the read count against ENA, downloads the `.sra` file, converts it with `fasterq-dump` and keeps it in the shared cache `data/raw/<run>.fastq.gz`, so later analyses reuse it.
 - **sample_id** (letters, digits, underscore): The row key. It names every file, log and SLURM job of the sample, so it must be unique within the sheet.
 - **condition** (free text): A human-readable label for the treatment, e.g. `rnp_dsDNA_donor`. Carried into `summary.tsv` and the KI % matrix; not interpreted by the tools.
-- **control** (tick box (`1` / `0`)): Marks a negative control. The first ticked sample is passed to CRISPRLungo as `--control`; at least one is required.
+- **control_tier** (`treated` / `no_donor` / `mock`): What the sample was given, which is what makes it a control or not. At least one `mock` or `no_donor` row is required. CRISPRLungo's `--control` is the first `mock`, and failing that the first `no_donor` — a fixed rule, so the choice never depends on row order.
+
+| Tier | Nuclease | Donor | What it measures | Expected KI % |
+|---|---|---|---|---|
+| `mock` | ✗ | ✗ | the sequencing and mapping error floor | ≈ 0 |
+| `no_donor` | ✓ | ✗ | knock-ins called where knock-in is impossible — the false-positive floor | ≈ 0 |
+| `treated` | ✓ | ✓ | the knock-in itself | the measurement |
+
+  Both tiers matter and they are not interchangeable. `mock` is the cleaner background for CRISPRLungo's error model, because no allele in it was cut. `no_donor` is the one that bounds the knock-in claim: it is the only sample where a `HDR-*` call is certainly wrong, so its KI % is the floor the treated samples must clear. A sheet with only `treated` rows is refused.
 - **Wet-lab and sequencing fields** (free text, dates, numbers): Provenance only. Stored in `configs/samples/<sample_id>.json` and copied into `results/<analysis>/meta/`; never read by the tools.
 - **References (built by `02_refs`)** (`TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `alpine/ref.fa`, `alpine/config.tsv`, `design.json`): Control (unedited) and knock-in amplicons, the inserted gene, guide, primers and homology arms. Built from a genome window (`refs.region`) and the donor template table of the paper (`refs.pmc`). The files are named after the example locus (`TRAC`, `CAR`); their roles are the same for any target.
+  `design.json`'s `deleted_wt_bp_between_arms` is **−4** for the example design: the published homology arms overlap by 4 bp rather than deleting WT sequence between them, so the KI allele is 4 bp longer than WT + insert. That is a property of the paper's template, not a bug in `build_refs.py` — do not "correct" the negative value.
 
 ![inputs](docs/img/01_inputs.svg)
 
@@ -36,7 +45,7 @@ Each variable is listed with what it controls, the step that reads it, and the o
 - `fetch.bioproject`: NCBI/ENA BioProject that the SRA runs belong to. Only used to download the run table from ENA, so that every downloaded run can be checked against its expected read count. Not needed when all samples are local FASTQ files.
   - step: `01_fetch` (jobs ena, download)
   - original argument: ENA filereport `accession=`
-- `fetch.min_len`: Shortest read kept, in bp. Reads below this length are dropped before any tool sees them (primer dimers, broken reads). Nothing is subsampled: all passing reads are used.
+- `fetch.min_len`: Shortest read kept, in bp. Reads below this length are dropped before any tool sees them (primer dimers, broken reads). Nothing is subsampled: all passing reads are used. Note that 3500 sits below the 4358 bp WT amplicon, so any allele with a deletion larger than ~860 bp is removed before either tool sees it — a silent floor on large-deletion detection. It applies to both tools equally, so the KI % comparison is unaffected.
   - step: `01_fetch` (job filter)
   - original argument: `seqkit seq -m`
 - `fetch.max_len`: Longest read kept, in bp. Removes concatemers and chimeric reads much longer than the knock-in amplicon.
@@ -81,7 +90,7 @@ Each variable is listed with what it controls, the step that reads it, and the o
 - `lungo.cleavage_pos`: Position of the cut inside the guide as CRISPRLungo counts it; centres the window where edits are scored.
   - step: `04_lungo`
   - original argument: CRISPRlungo `--cleavage_pos`
-- `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise.
+- `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise. **Do not lower this below 21 for the example design:** the donor's PAM-blocking mutations sit at cut −3..0 and at **+20 bp**, so 25 clears the furthest one by only 4 bp. At the upstream default of 5 that mutation falls outside the window and CRISPRLungo warns.
   - step: `04_lungo`
   - original argument: CRISPRlungo `--window`
 - `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job, set in `src/pipeline.py`. `get_best_node` uses them to choose a partition and node with enough free resources when each job is submitted.
@@ -130,7 +139,7 @@ Each sample card has a **Local file | SRA** switch, with Local file as the defau
 
 | Term | Definition |
 |---|---|
-| **Save samples** | validates, then writes `configs/samples.tsv` (`sample_id, fastq_path, srr, condition, control`) and `configs/samples/<sample_id>.json` |
+| **Save samples** | validates, then writes `configs/samples.tsv` (`sample_id, fastq_path, srr, condition, control_tier`) and `configs/samples/<sample_id>.json` |
 | **Load saved** | reopens the saved sheet |
 
 ### Run
@@ -151,6 +160,10 @@ The screenshot below is a finished run of the example data.
 | stop | `pipeline.py <name> --stop` (`scancel` of this run's jobs) |
 
 ### Results
+
+The Results tab on the example data, in the **one plot per sample** layout.
+
+![results](docs/img/gui_results_example.png)
 
 | Term | Definition |
 |---|---|
@@ -237,10 +250,10 @@ cat results/<name>/summary_matrix.tsv           # KI % per tool x sample
 A read that is neither a clean knock-in nor unedited is still counted and reported, so a failed experiment can be told apart from a partly successful one.
 
 - **Partial inserts (more than 0 but below the threshold)** are counted in their own columns of `summary.tsv`: `partial_reads` and `partial_pct`. For ALPINE these are the `Non-HDR-...` classes, which is exactly what ALPINE calls a read whose insert is too short; for CRISPRLungo they are reads with some insert integration whose merged blocks cover less than `ki_min_insert_frac` of the insert.
-- **Everything else is distinguished too, not merged into "not knock-in".** Both tools classify every read, and the full class breakdown with percentages goes into the `notes` column of `summary.tsv`. A small insertion or deletion at the cut is therefore a different outcome from an unedited read: ALPINE reports `Unmodified`, `Unmodified-with-SNP`, `DEL-small`, `INS-small`, `DEL-large`, `INS-large`, `INV`, `DUP`, `Unclassified`; CRISPRLungo reports `WT`, `Sub`, `Ins`, `Del`, `LargeIns`, `LargeDel`, `Inversion`, `Complex`.
+- **Everything else is distinguished too, not merged into "not knock-in".** Both tools classify every read, and the full class breakdown with percentages goes into the `notes` column of `summary.tsv`. A small insertion or deletion at the cut is therefore a different outcome from an unedited read: ALPINE reports `Unmodified`, `Unmodified-with-SNP`, `DEL-small`, `INS-small`, `DEL-large`, `INS-large`, `INV`, `DUP`, `Unclassified`; CRISPRLungo reports `WT`, `Sub`, `Ins`, `Del`, `LargeIns`, `LargeDel`, `Inv`, `Complex`, `ComplexWithLargeMut`.
 - The per-read tables are kept as well, under `results/<name>/ALPINE/<sample>/` and `results/<name>/CRISPRLungo/<sample>/results/`, if you want to go back to individual reads.
 
-`summary_classes.tsv` has one row per tool, sample and tool class (`tool, sample_id, category, class, reads, pct`), with `pct` over that tool's classified reads. Each class goes into one of six groups, and the groups add up to `reads_used`:
+`summary_classes.tsv` has one row per tool, sample and tool class (`tool, sample_id, category, class, reads, pct`), with `pct` over `reads_used` for every row. Each class goes into one of seven groups; the first six add up to `reads_used`, and `Unclassified` is counted separately:
 
 | Group | ALPINE classes | CRISPRLungo reads |
 |---|---|---|
@@ -248,8 +261,13 @@ A read that is neither a clean knock-in nor unedited is still counted and report
 | Partial knock-in | `Non-HDR-*` | merged insert blocks > 0 but below the threshold |
 | Unedited | `Unmodified`, `Unmodified-with-SNP` | `WT` |
 | Small indel | `DEL-small`, `INS-small` | `Sub`, `Ins`, `Del` |
-| Large / structural | `DEL-large`, `INS-large`, `INV`, `DUP` | `LargeIns`, `LargeDel`, `Inversion`, `Complex*` |
-| Other | `Unclassified` and anything else | anything else |
+| Large / structural | `DEL-large`, `INS-large`, `INV`, `DUP` | `LargeIns`, `LargeDel`, `Inv`, `Complex*` |
+| Other | anything not matched above | anything not matched above |
+| Unclassified **(excluded from `reads_used`)** | `Unclassified` | — |
+
+**Why `Unclassified` is excluded.** ALPINE keeps the reads it cannot place as an `Unclassified` class — mostly reads failing its primer, quality or full-length checks. CRISPRLungo has no equivalent: reads it cannot classify never reach its table at all. Counting ALPINE's in the denominator while CRISPRLungo's are already gone would make the two tools' percentages answer different questions, so they are excluded from `reads_used` and reported in their own `unclassified_reads` column. They are not deleted: the class rows stay in `summary_classes.tsv`, the count is in `unclassified_reads`, and the Results tab can chart them (**Include unclassified reads**) or show them as the drop from length-passing reads to classified reads (**Read filtering panel**).
+
+Only the literal `Unclassified` class is excluded. An unrecognised class goes to `Other`, which stays in `reads_used` — an unexpected outcome must never silently inflate the knock-in percentage.
 
 The KI % matrix shows only `ki_pct`; the Results tab charts the groups per sample.
 
@@ -273,6 +291,68 @@ The KI % matrix shows only `ki_pct`; the Results tab charts the groups per sampl
 | `--cleanenv` | host environment does not leak into jobs |
 | `--bind` | add to `apptainer-args` for data outside the repo (symlink targets too) |
 
+## Example datasets
+
+Two published experiments are wired up. Example 1 is the default: `configs/samples.tsv` and
+`configs/param_configs.yaml` are already set up for it. Example 2 lives in
+`configs/examples/example_arcus/` and is switched in by copying those two files over the defaults.
+
+| | Example 1 (default) | Example 2 |
+|---|---|---|
+| Analysis name | `example_trac` | `example_arcus` |
+| Paper | Nitulescu et al. 2025, doi:10.1016/j.omtn.2025.102568 | Nucleic Acids Res 2025, doi:10.1093/nar/gkaf961 |
+| BioProject | PRJNA1257358 | PRJNA1183863 |
+| Nuclease | AsCas12a, 23 nt guide | ARCUS meganuclease, 22 bp recognition site |
+| Donor | dsDNA / ssDNA / ssCTS, CD19-CAR insert | AAV6, 2.8 kb skip with a 500 bp right homology arm |
+| Amplicon | 5.4 kb | 9.6 kb (chr14:22542700-22552299) |
+| KI allele | 2.0 kb insert | 583 bp cassette replacing 2851 bp of WT, so the KI amplicon is **shorter** (7.3 kb) |
+| Samples | 5 (`mock`, `no_donor`, 3 × `treated`) | 3 (`no_donor`, 2 × `treated`) |
+| Donor sequence from | the paper's Table S1 (`templates_xlsx`) | the reads (`donor_ki_fasta`) |
+
+Both target *TRAC* and share the same 20 kb genome window, so `refs.region` is identical. Example 2 is the
+reason `build_refs.py` takes `donor_ki_fasta`: ARCUS's repair template is not published as a sequence, so
+there is no table to read it from.
+
+```bash
+cp configs/examples/example_arcus/samples.tsv configs/samples.tsv
+cp configs/examples/example_arcus/param_configs.yaml configs/param_configs.yaml
+python3 src/analysis.py example_arcus
+python3 src/pipeline.py example_arcus --root $PWD
+```
+
+### How example 2's donor was reconstructed, and what that costs
+
+`configs/examples/example_arcus/donor_ki.fa` is not a published sequence. It was built here from
+SRR31290121, the sorted B2M−CD3+ population the paper reports as correctly inserted:
+
+1. Reads 7.0-7.5 kb long were mapped to the genome window; 95% of them share one structure, a ~2.3 kb net
+   genomic deletion with no foreign insertion, because the cassette is *recoded TRAC exon* sequence that
+   still aligns to the genome.
+2. The median such read became a backbone, the other 550 were mapped back to it, and `samtools consensus`
+   polished it at 546x depth.
+3. The final allele is composed rather than used raw: the two flanks are taken from the hg38 window and only
+   the 583 bp that does not align to the genome comes from the consensus. The result has no `N`.
+
+Three honest limits of this:
+
+- **The junctions can slide by a base or two.** They are inferred from where the donor stops matching WT, so
+  a cassette end that happens to repeat a WT base extends the apparent flank. `build_refs.py` reports
+  `cut_site_0b` 5003 from the ARCUS site while the inferred junction is at 5005; both sit inside the 4 nt
+  3' overhang that this nuclease leaves, so they are consistent, but do not read the junction as exact.
+
+  The cut itself is confirmed from the data, not just from the nuclease's geometry: in the nuclease-only
+  control (SRR31290119), reads carrying an indel of 3 bp or more cluster at WT 4980-5009, which brackets
+  both the 22 bp recognition site (4992-5013) and the computed cut. Three apparently larger hotspots in the
+  same control are **homopolymer artefacts, not cuts** — 23xT at WT 5945, 18xA at 1225 and 9xA at 8475 are
+  the usual nanopore indel sites. This is also why `lungo.window` 25 is safe here: the worst of them is
+  940 bp away from the cut, far outside the window CRISPRLungo counts indels in.
+- **`primer_f_specific` / `primer_r_specific` are not the real primers.** The paper does not publish them.
+  They are the first and last 25 bp of the observed amplicon, which anchors the same window; `design.json`
+  records them as primers because that is the field they fill.
+- **`fetch.min_len` 6000 is a floor on deletion size.** The WT amplicon is 9.6 kb and the KI 7.3 kb, so any
+  allele that lost more than ~3.5 kb is filtered out before either tool sees it, and will not appear as a
+  large deletion.
+
 ## Reproducibility
 
 | Input | Pin | File |
@@ -288,6 +368,7 @@ The KI % matrix shows only `ki_pct`; the Results tab charts the groups per sampl
 
 - **Tools.** ALPINE (Chen et al., *Bioinformatics* 2026) and CRISPRLungo (Hwang, Pinello et al., *Nature Biomedical Engineering* 2026) do the analysis. Please cite them if you use these results. Their licences are in [LICENSES.md](LICENSES.md).
 - **Example data.** The example samples are public reads of: Nitulescu A-M, Du W, Glaser V, et al. *Single-stranded HDR templates with truncated Cas12a-binding sequences improve knock-in efficiencies in primary human T cells.* Mol Ther Nucleic Acids 36(2):102568 (2025), [doi:10.1016/j.omtn.2025.102568](https://doi.org/10.1016/j.omtn.2025.102568), reads in SRA BioProject [PRJNA1257358](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1257358). The paper is open access under CC BY-NC-ND 4.0. Nothing from it is copied here: reads and the supplement are downloaded from their original source when you run the pipeline. Details in [LICENSES.md](LICENSES.md#example-data).
+- **Second example data.** *High-efficiency homology-directed insertion into the genome using the engineered homing endonuclease ARCUS.* Nucleic Acids Res (2025), [doi:10.1093/nar/gkaf961](https://doi.org/10.1093/nar/gkaf961), reads in SRA BioProject [PRJNA1183863](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1183863). Open access under CC BY-NC 4.0. With thanks to the authors at Precision BioSciences for releasing a nuclease-only control alongside the edited samples — that control is what lets this example show a true `no_donor` tier.
 
 ## Development
 

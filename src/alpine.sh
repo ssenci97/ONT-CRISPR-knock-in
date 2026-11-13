@@ -14,10 +14,11 @@ printf 'fastqfile: {class: File, path: %s}\nreffile: {class: File, path: %s}\nco
 cp -r "$A/CWL/." "$WORK/"; cp -r "$A/DockerFile" "$WORK/"
 preset=map-hifi; [ "$data_type" = nanopore ] && preset=map-ont; patched=0
 if [ "$preset" != map-hifi ]; then
-  for f in "$D/classify/utils/data_utils.py" "$D/classify/utils/realign_ins_to_wildtype.py"; do
+  gate="$D/classify/utils/data_utils.py"
+  for f in "$gate" "$D/classify/utils/realign_ins_to_wildtype.py"; do
     [ -f "$f" ] && grep -q -- "-ax map-hifi" "$f" && { sed -i "s/-ax map-hifi/-ax $preset/g" "$f"; patched=$((patched + 1)); }
   done
-  [ "$patched" -gt 0 ] || { kv_log "wanted minimap2 preset $preset but found no map-hifi call to patch"; exit 1; }
+  grep -q -- "-ax $preset" "$gate" || { kv_log "wanted minimap2 preset $preset but the homology-arm gate ${gate##*/} has no $preset call"; exit 1; }
 fi
 for f in "$WORK"/*.cwl "$WORK"/*/*.cwl; do
   sed -i -e "s#/opt/filter_fastq_gz.py#$D/filter/filter_fastq_gz.py#g" -e "s#/opt/classify_read.py#$D/classify/classify_read.py#g" \

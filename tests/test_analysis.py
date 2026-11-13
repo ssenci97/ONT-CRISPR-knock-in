@@ -51,3 +51,23 @@ def test_validate():
     assert any("accession" in e for e in a.validate([dict(ok[0], srr="foo")]))
     assert any("fastq_path" in e for e in a.validate([dict(ok[0], srr="", fastq_path="relative.fq")]))
     assert any("fastq_path" in e for e in a.validate([dict(ok[0], srr="", fastq_path="/no/such/file")]))
+
+def test_control_tiers():
+    row = {"sample_id": "A", "srr": "SRR1", "condition": "c"}
+    assert a.tier(row) == "treated"
+    assert a.tier(dict(row, control="1")) == "mock"
+    assert a.tier(dict(row, control_tier="no_donor")) == "no_donor"
+    assert a.tier(dict(row, control_tier="no_donor", control="1")) == "no_donor"
+    assert a.validate([dict(row, control_tier="mock")]) == []
+    assert a.validate([dict(row, control_tier="no_donor")]) == []
+    assert any("control_tier" in e for e in a.validate([dict(row, control_tier="treated")]))
+    assert any("one of" in e for e in a.validate([dict(row, control_tier="nonsense")]))
+
+def test_control_sample_prefers_mock_whatever_the_row_order():
+    treated = {"control_tier": "treated"}
+    nod, mock = {"control_tier": "no_donor"}, {"control_tier": "mock"}
+    assert a.control_sample({"A": treated, "B": nod, "C": mock}) == "C"
+    assert a.control_sample({"A": mock, "B": nod}) == "A"
+    assert a.control_sample({"A": treated, "B": nod}) == "B"
+    assert a.control_sample({"A": treated}) is None
+    assert a.control_sample({"A": treated, "B": {"control": "1"}}) == "B"

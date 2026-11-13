@@ -54,7 +54,7 @@
 | SLURM | one job per step per sample; no arrays; chained with `--dependency=afterok` |
 | logs | start `[SLURM-INFO]`/`[PYTHON-INFO]`, end `date \| elapsed \| max RSS` (`kv_footer`) |
 | subsampling | none; `SEED=42` exported anyway |
-| control | first row of `samples.tsv` with `control=1` |
+| control | `control_tier` in `samples.tsv`: first `mock`, else first `no_donor`; never row order |
 | `ki_min_insert_frac` | `shared:`, 0.80; ALPINE `truncated_cutoff` + CRISPRLungo insert span |
 | container | mandatory; `KV_SIF` overrides image; no native mode |
 | driver | `src/pipeline.py` on the login node: plans, submits with dependencies, exits; done = outputs exist + log footer + not older than inputs; rerun resumes |
@@ -82,6 +82,7 @@
 | Item | Value |
 |---|---|
 | project | SRA PRJNA1257358 — Nitulescu et al. 2025, *Mol Ther Nucleic Acids*, doi:10.1016/j.omtn.2025.102568 |
+| project 2 | SRA PRJNA1183863 — ARCUS homology-directed insertion, *Nucleic Acids Res* 2025, doi:10.1093/nar/gkaf961 |
 | edit | CD19-CAR at *TRAC*, primary human T cells, AsCas12a |
 | amplicon | ONT R10.4.1 |
 | `download` | `.sra` from NCBI S3 → `fasterq-dump` → count checked against ENA |
@@ -109,7 +110,7 @@
 | Tool | Settings | KI % |
 |---|---|---|
 | ALPINE | WT + HDR refs; full primers (`primer_2` = reverse primer as ordered); `primer_check_length`; template arms; `data_type nanopore` | HDR / classified |
-| CRISPRLungo | `--cleavage_pos`; `--window`; `--control` (first ticked control); `--induced_sequence_path`; `--integration_file` | integration ≥ `ki_min_insert_frac` of insert / classified |
+| CRISPRLungo | `--cleavage_pos`; `--window`; `--control` (first `mock`, else first `no_donor`); `--induced_sequence_path`; `--integration_file` | integration ≥ `ki_min_insert_frac` of insert / classified |
 
 ## 9. Reading the results
 

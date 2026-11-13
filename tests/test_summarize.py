@@ -30,8 +30,9 @@ def test_matrix(tmp_path):
     assert rows[1] == ["ALPINE", "10.0", "60.0"]
     assert rows[2] == ["CRISPRLungo", "0.0", "25.0"]
     s = {(r[0], r[1]): r for r in (l.split("\t") for l in open(f"{d}/summary.tsv").read().split("\n")[1:] if l)}
-    assert s[("CRISPRLungo", "B")][7:9] == ["1", "25.0"]
-    assert s[("ALPINE", "B")][7] == "0"
+    assert s[("CRISPRLungo", "B")][8:10] == ["1", "25.0"]
+    assert s[("ALPINE", "B")][8] == "0"
+    assert s[("ALPINE", "B")][5] == "0" and s[("CRISPRLungo", "B")][5] == "0"
     c = [l.split("\t") for l in open(f"{d}/summary_classes.tsv").read().split("\n")[1:] if l]
     g = {}
     for t, sid, cat, _, n, _ in c: g[(t, sid, cat)] = g.get((t, sid, cat), 0) + int(n)
@@ -42,8 +43,20 @@ def test_matrix(tmp_path):
 def test_category_mapping():
     import importlib.util
     spec = importlib.util.spec_from_file_location("summarize", f"{ROOT}/src/summarize.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-    want = {"HDR-CD19": 0, "Non-HDR-without-ITR": 1, "Unmodified-with-SNP": 2, "WT": 2, "DEL/INS-small": 3, "Sub": 3, "LargeIns": 4, "DEL/INS-large": 4, "INV": 4, "ComplexWithLargeMut": 4, "Unclassified": 5}
+    want = {"HDR-CD19": 0, "Non-HDR-without-ITR": 1, "Unmodified-with-SNP": 2, "WT": 2, "DEL/INS-small": 3, "Sub": 3, "LargeIns": 4, "DEL/INS-large": 4, "INV": 4, "ComplexWithLargeMut": 4, "Unclassified": 6, "Weird-new-class": 5}
     assert {c: m.CATEGORIES.index(m.category(c)) for c in want} == want
+
+def test_unclassified_excluded_from_denominator(tmp_path):
+    d = str(tmp_path / "results" / "run1")
+    setup(d, "sample_id\tsrr\tcondition\tcontrol\nA\tSRR1\tki\t1\n")
+    write(f"{d}/ALPINE/A/A_read_classification.txt", "WT\tHDR_CD19\tUnclassified\n4\t6\t10\n")
+    assert run(d)[1] == ["ALPINE", "60.0"]
+    a = [l.split("\t") for l in open(f"{d}/summary.tsv").read().split("\n")[1:] if l][0]
+    assert a[4] == "10" and a[5] == "10"
+    c = [l.split("\t") for l in open(f"{d}/summary_classes.tsv").read().split("\n")[1:] if l]
+    assert [r for r in c if r[2] == "Unclassified"][0][4] == "10"
+    assert sum(int(r[4]) for r in c if r[2] != "Unclassified") == 10
+
 
 def test_missing_output_is_na(tmp_path):
     d = str(tmp_path / "results" / "run1")

@@ -11,9 +11,10 @@ NAME = "summarize"
 OUT = RES = PARAM_YAML = SAMPLES_TSV = None
 PARAMS = dict()
 SHARED = dict(ki_min_insert_frac=0.8)
-COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "partial_reads", "partial_pct", "metric", "notes"]
+COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "unclassified_reads", "ki_reads", "ki_pct", "partial_reads", "partial_pct", "metric", "notes"]
 CLASS_COLS = ["tool", "sample_id", "category", "class", "reads", "pct"]
-CATEGORIES = ["Full knock-in", "Partial knock-in", "Unedited", "Small indel", "Large / structural", "Other"]
+CATEGORIES = ["Full knock-in", "Partial knock-in", "Unedited", "Small indel", "Large / structural", "Other", "Unclassified"]
+UNCLASSIFIED = CATEGORIES[6]
 SMALL, LARGE = {"SUB", "INS", "DEL"}, {"LARGEINS", "LARGEDEL", "INVERSION", "INV", "DUP"}
 
 ###################################### helpers
@@ -34,6 +35,7 @@ def category(c):
     if u.startswith("UNMODIFIED") or u == "WT": return CATEGORIES[2]
     if u in SMALL or u.endswith("-SMALL"): return CATEGORIES[3]
     if u in LARGE or u.endswith("-LARGE") or u.startswith("COMPLEX"): return CATEGORIES[4]
+    if u == "UNCLASSIFIED": return UNCLASSIFIED
     return CATEGORIES[5]
 
 ###################################### tool metrics
@@ -44,9 +46,10 @@ def alpine(sample_id, d, p):
     for k, v in zip(rows[0], rows[-1]):
         try: cnt[k] = int(float(v))
         except ValueError: pass
-    n, k = sum(cnt.values()), sum(v for c, v in cnt.items() if c.upper().startswith("HDR"))
+    unc = sum(v for c, v in cnt.items() if category(c) == UNCLASSIFIED)
+    n, k = sum(cnt.values()) - unc, sum(v for c, v in cnt.items() if c.upper().startswith("HDR"))
     part = sum(v for c, v in cnt.items() if c.upper().startswith("NON-HDR"))
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"ALPINE HDR class (transgene >={p['ki_min_insert_frac']:.0%} of insert, both homology arms validated) / classified reads",
+    return dict(reads_used=n, unclassified_reads=unc, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"ALPINE HDR class (transgene >={p['ki_min_insert_frac']:.0%} of insert, both homology arms validated) / classified reads excluding unclassifiable reads",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1]) if v),
                 classes=[(category(c), c, v) for c, v in cnt.items() if v])
 
@@ -68,13 +71,14 @@ def lungo(sample_id, d, p):
             re.findall(r"CAR_insert_\d+to\d+inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or ""))
     need = p["ki_min_insert_frac"] * d["insert_len"]
     cov = {rid: union_len(s) for rid, s in spans.items()}
-    cnt, grp = {}, {}
+    cnt, grp, unc = {}, {}, 0
     for rid, c in cls.items():
         cnt[c] = cnt.get(c, 0) + 1
         g = (CATEGORIES[0], f"{c} + insert >={p['ki_min_insert_frac']:.0%}") if cov[rid] >= need else (CATEGORIES[1], f"{c} + insert <{p['ki_min_insert_frac']:.0%}") if cov[rid] else (category(c), c)
         grp[g] = grp.get(g, 0) + 1
-    n, k, part = len(cov), sum(c >= need for c in cov.values()), sum(0 < c < need for c in cov.values())
-    return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"reads whose CAR_insert integration covers >={p['ki_min_insert_frac']:.0%} of the insert (union of blocks) / classified reads",
+        unc += g[0] == UNCLASSIFIED
+    n, k, part = len(cov) - unc, sum(c >= need for c in cov.values()), sum(0 < c < need for c in cov.values())
+    return dict(reads_used=n, unclassified_reads=unc, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"reads whose CAR_insert integration covers >={p['ki_min_insert_frac']:.0%} of the insert (union of blocks) / classified reads excluding unclassifiable reads",
                 notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])),
                 classes=[(g, c, v) for (g, c), v in grp.items()])
 

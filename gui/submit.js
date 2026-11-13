@@ -257,7 +257,7 @@ function toggleExample() {
   state.stash = state.rows.map(read).filter((r) => Object.values(r).some((v) => v && v !== "0"));
   fill((state.schema.example || []).map((x) => ({ ...x })));
   setExample(true);
-  status("Example data loaded: 5 public ONT runs (BioProject PRJNA1257358). Click again to hide them. Save to use them.", false);
+  status("Example data: 5 public ONT runs (BioProject PRJNA1257358), sample names as the authors named them. With thanks to Nitulescu, Du, Glaser, Kath, Aird, Cullot, Greensmith, Mikkelsen, Stein, Bak, Kaminski, Corn and Wagner for making this dataset public — Mol Ther Nucleic Acids 2025, doi:10.1016/j.omtn.2025.102568. Click again to hide. Save to use them.", false);
 }
 
 async function submit() {
@@ -368,8 +368,9 @@ async function launch() {
   refreshStatus();
 }
 
-const GROUPS = ["Full knock-in", "Partial knock-in", "Unedited", "Small indel", "Large / structural", "Other"];
-const GROUP_COLORS = ["#1f5f4f", "#e0a526", "#c7c7cc", "#0071e3", "#c46aa6", "#8e8e93"];
+const UNCL = "Unclassified";
+const GROUPS = ["Full knock-in", "Partial knock-in", "Unedited", "Small indel", "Large / structural", "Other", UNCL];
+const GROUP_COLORS = ["#1f5f4f", "#e0a526", "#c7c7cc", "#0071e3", "#c46aa6", "#8e8e93", "#6d6d72"];
 const SERIES = ["#1f5f4f", "#e0a526", "#0071e3", "#c46aa6", "#9c3a00", "#8ec9f0", "#4b2a7b"];
 const DIMS = { sample: "Sample", tool: "Tool", outcome: "Outcome" };
 const VALUES = { reads: "Reads", classified: "% of classified reads", len_pass: "% of length-passing reads", raw: "% of raw reads" };
@@ -382,24 +383,29 @@ const PRESETS = {
 const SVG_FONT = "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif";
 const fmt = (n) => Number(n).toLocaleString("en-US");
 const pctTxt = (p) => (p === 0 ? "0%" : p < 0.01 ? "<0.01%" : `${p < 1 ? p.toFixed(2) : p.toFixed(1)}%`);
-const CH = { r: null, o: { samples: null, tools: null, outcomes: null, detail: "groups", value: "classified", panel: "tool", row: "sample", color: "outcome", bars: "stacked", labels: "value", sort: "sheet", shared: true, funnel: false } };
+const CH = { r: null, o: { samples: null, tools: null, outcomes: null, detail: "groups", value: "classified", panel: "tool", row: "sample", color: "outcome", bars: "stacked", labels: "value", sort: "sheet", shared: true, funnel: false, unclassified: false } };
 try { Object.assign(CH.o, JSON.parse(store.get("kv_chart") || "{}")); } catch {}
 
-function chartData(r, detail) {
-  const used = {}, val = {}, cat = {}, outs = [];
-  for (const x of r.rows) used[`${x.tool}|${x.sample_id}`] = Number(x.reads_used) || 0;
+function chartData(r, detail, withUnc) {
+  const used = {}, unc = {}, val = {}, cat = {}, outs = [];
+  for (const x of r.rows) {
+    used[`${x.tool}|${x.sample_id}`] = Number(x.reads_used) || 0;
+    unc[`${x.tool}|${x.sample_id}`] = Number(x.unclassified_reads) || 0;
+  }
   const samples = [...new Set([...(r.matrix ? r.matrix[0].slice(1) : []), ...r.rows.map((x) => x.sample_id)])];
   const tools = [...new Set(r.rows.map((x) => x.tool))];
   for (const x of r.classes || []) {
+    if (!withUnc && x.category === UNCL) continue;
     const o = detail === "groups" ? x.category : x.class;
     if (!outs.includes(o)) outs.push(o);
     cat[o] = x.category;
     const k = `${x.tool}|${x.sample_id}|${o}`; val[k] = (val[k] || 0) + Number(x.reads);
   }
-  const order = detail === "groups" ? GROUPS : outs.sort((a, b) => GROUPS.indexOf(cat[a]) - GROUPS.indexOf(cat[b]));
+  const groups = GROUPS.filter((g) => withUnc || g !== UNCL);
+  const order = detail === "groups" ? groups : outs.sort((a, b) => GROUPS.indexOf(cat[a]) - GROUPS.indexOf(cat[b]));
   const reads = (s) => r.reads[s] || ((r.meta[s] || {}).steps || {})["01_fetch"] || {};
-  const denom = (t, s, mode) => (mode === "classified" ? used[`${t}|${s}`] : Number(reads(s)[mode === "raw" ? "raw_reads" : "len_pass"]) || 0);
-  return { samples, tools, outcomes: order, cat, reads, used, get: (t, s, o) => val[`${t}|${s}|${o}`] || 0, denom };
+  const denom = (t, s, mode) => (mode === "classified" ? used[`${t}|${s}`] + (withUnc ? unc[`${t}|${s}`] || 0 : 0) : Number(reads(s)[mode === "raw" ? "raw_reads" : "len_pass"]) || 0);
+  return { samples, tools, outcomes: order, groups, cat, reads, used, get: (t, s, o) => val[`${t}|${s}|${o}`] || 0, denom };
 }
 
 function saveChart() { store.set("kv_chart", JSON.stringify(CH.o)); }
@@ -444,7 +450,7 @@ function setDim(slot, dim) {
 }
 
 function seriesColors(full, o, keys) {
-  if (o.color === "outcome" && o.detail === "groups") return keys.map((k) => ({ fill: GROUP_COLORS[GROUPS.indexOf(k)], hatch: k === "Other" }));
+  if (o.color === "outcome" && o.detail === "groups") return keys.map((k) => ({ fill: GROUP_COLORS[GROUPS.indexOf(k)], hatch: k === "Other" || k === UNCL }));
   return keys.map((k) => { const i = Math.max(0, full.indexOf(k)); return { fill: SERIES[i % SERIES.length], hatch: i >= SERIES.length }; });
 }
 
@@ -453,7 +459,7 @@ function renderControls() {
   box.textContent = "";
   if (!r || !r.classes) { box.hidden = true; return; }
   box.hidden = false;
-  const d = chartData(r, o.detail);
+  const d = chartData(r, o.detail, o.unclassified);
   const sel = (k, all) => { if (!o[k]) o[k] = [...all]; o[k] = o[k].filter((x) => all.includes(x)); if (!o[k].length) o[k] = [...all]; return o[k]; };
   const ss = sel("samples", d.samples), ts = sel("tools", d.tools), os = sel(`outcomes_${o.detail}`, d.outcomes);
   const redraw = () => { saveChart(); renderControls(); renderChart(); };
@@ -477,10 +483,10 @@ function renderControls() {
     ctlRow("Quick layouts", presets),
     ctlRow("Samples", ...d.samples.map((s, i) => chip(s, ss.includes(s), (on) => toggle("samples", s, on, d.samples), sCol[i])), allNone("samples", d.samples)),
     ctlRow("Tools", ...d.tools.map((t, i) => chip(t, ts.includes(t), (on) => toggle("tools", t, on, d.tools), tCol[i]))),
-    ctlRow("Outcomes", seg({ groups: "6 groups", classes: "Tool classes" }, o.detail, (v) => { o.detail = v; redraw(); }),
+    ctlRow("Outcomes", seg({ groups: `${d.groups.length} groups`, classes: "Tool classes" }, o.detail, (v) => { o.detail = v; redraw(); }),
       ...d.outcomes.map((x, i) => chip(x, os.includes(x), (on) => toggle(`outcomes_${o.detail}`, x, on, d.outcomes), outColors[i])), allNone(`outcomes_${o.detail}`, d.outcomes)),
     ctlRow("Values", pick(VALUES, o.value, (v) => { o.value = v; redraw(); }),
-      el("span", "ctl-lab inline", "Labels"), seg({ value: "Value", both: "Count + %", none: "None" }, o.labels, (v) => { o.labels = v; redraw(); })),
+      el("span", "ctl-lab inline", "Labels"), seg(o.value === "reads" ? { value: "Count", none: "None" } : { value: "Value", both: "Count + %", none: "None" }, o.labels === "both" && o.value === "reads" ? "value" : o.labels, (v) => { o.labels = v; redraw(); })),
     ctlRow("Layout",
       el("span", "ctl-lab inline", "Panels"), pick({ none: "None (one plot)", ...DIMS }, o.panel, (v) => { setDim("panel", v); redraw(); }),
       el("span", "ctl-lab inline", "Rows"), pick(DIMS, o.row, (v) => { setDim("row", v); redraw(); }),
@@ -489,12 +495,13 @@ function renderControls() {
       seg(o.color === "outcome" ? { stacked: "Stacked", grouped: "Side by side" } : { grouped: "Side by side" }, o.bars, (v) => { o.bars = v; redraw(); }),
       el("span", "ctl-lab inline", "Sort"), seg({ sheet: "Sheet order", value: "Largest first" }, o.sort, (v) => { o.sort = v; redraw(); }),
       chip("Same scale in all panels", o.shared, (on) => { o.shared = on; redraw(); }),
-      chip("Read filtering panel", o.funnel, (on) => { o.funnel = on; redraw(); })),
+      chip("Read filtering panel", o.funnel, (on) => { o.funnel = on; redraw(); }),
+      chip("Include unclassified reads", o.unclassified, (on) => { o.unclassified = on; redraw(); })),
   );
 }
 
 function chartModel() {
-  const o = CH.o, r = CH.r, d = chartData(r, o.detail);
+  const o = CH.o, r = CH.r, d = chartData(r, o.detail, o.unclassified);
   const S = o.samples, T = o.tools, O = o[`outcomes_${o.detail}`] || d.outcomes;
   const lists = { sample: S, tool: T, outcome: O }, left = Object.keys(DIMS).find((k) => k !== o.row && k !== o.color && k !== o.panel);
   const cells = [];
@@ -545,7 +552,7 @@ function renderChart() {
   }
   const { panels, series, full } = chartModel(), stacked = o.bars === "stacked" && o.color === "outcome";
   const NS = "http://www.w3.org/2000/svg", W = 960, PAD = 16, BAR = stacked ? 20 : 13, ROWGAP = stacked ? 10 : 12;
-  const unit = o.value === "reads" ? "" : "%", lab = (c) => (o.labels === "none" ? "" : o.labels === "both" ? `${fmt(c.reads)} · ${pctTxt(o.value === "reads" ? c.pctCls : c.value)}` : unit ? pctTxt(c.value) : fmt(c.reads));
+  const unit = o.value === "reads" ? "" : "%", lab = (c) => (o.labels === "none" ? "" : !unit ? fmt(c.reads) : o.labels === "both" ? `${fmt(c.reads)} · ${pctTxt(c.value)}` : pctTxt(c.value));
   const allRows = panels.flatMap((p) => p.rows);
   const LABW = Math.min(260, Math.max(80, ...allRows.map((r) => textW(r.key))) + 12);
   const total = (r) => ({ reads: r.cells.reduce((s, c) => s + c.reads, 0), value: r.cells.reduce((s, c) => s + c.value, 0), pctCls: r.cells.reduce((s, c) => s + c.pctCls, 0) });
@@ -599,7 +606,7 @@ function renderChart() {
           const w = sx(c.value), i = keys.indexOf(c.series);
           if (c.reads > 0) {
             const g = mk("g", {}), rect = mk("rect", { x, y, width: Math.max(w - 1, 1.5), height: BAR, fill: fills[i] }, g);
-            const t = mk("title", {}, rect); t.textContent = `${r.key} · ${c.series}\n${fmt(c.reads)} reads · ${pctTxt(c.pctCls)} of classified`;
+            const t = mk("title", {}, rect); t.textContent = `${r.key} · ${c.series}\n${fmt(c.reads)} reads${unit ? ` · ${pctTxt(c.pctCls)} of classified` : ""}`;
             if (o.labels !== "none" && !fills[i].startsWith("url") && w > textW(lab(c), 11) + 8) txt(lab(c), { x: x + w / 2, y: y + BAR / 2 + 4, "font-size": 11, "text-anchor": "middle", fill: ["#e0a526", "#c7c7cc", "#8ec9f0"].includes(c.fill || fills[i]) ? "#1d1d1f" : "#ffffff", "pointer-events": "none" }, g);
           }
           x += w;
@@ -609,7 +616,7 @@ function renderChart() {
         r.cells.forEach((c, j) => {
           const yy = y + j * (BAR + 2), w = sx(c.value), i = keys.indexOf(c.series);
           const rect = mk("rect", { x: X0, y: yy, width: c.reads > 0 ? Math.max(w, 1.5) : 0, height: BAR, rx: 2, fill: fills[i] });
-          const t = mk("title", {}, rect); t.textContent = `${r.key} · ${c.series}\n${fmt(c.reads)} reads · ${pctTxt(c.pctCls)} of ${p.funnel ? "raw" : "classified"}`;
+          const t = mk("title", {}, rect); t.textContent = `${r.key} · ${c.series}\n${fmt(c.reads)} reads${unit ? ` · ${pctTxt(c.pctCls)} of ${p.funnel ? "raw" : "classified"}` : ""}`;
           if (o.labels !== "none") txt(lab(c), { x: X0 + w + 6, y: yy + BAR / 2 + 4, "font-size": 11.5, fill: "#4f4f54" });
         });
       }

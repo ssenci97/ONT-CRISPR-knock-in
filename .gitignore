@@ -8,3 +8,14 @@ __pycache__/
 .singularity/
 .kv_bin/
 .kv_env/
+*.fastq
+*.fastq.gz
+*.fq.gz
+*.bam
+*.sam
+*.cram
+*.sra
+*-success.html
+session-example-*.html
+*_files/
+knockin_user_interface/

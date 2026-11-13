@@ -9,7 +9,7 @@
 
 ## What it does
 1. **Alignment:** minimap2 against the WT amplicon, with a multipass algorithm that rescues split and chimeric alignments.
-2. **Classification:** one class per read — WT, Sub, Ins, Del, LargeIns, LargeDel, Inversion, Complex, ComplexWithLargeMut — counting variants within `--window` bp of the cut.
+2. **Classification:** one class per read — WT, Sub, Ins, Del, LargeIns, LargeDel, `Inv`, Complex, ComplexWithLargeMut — counting variants within `--window` bp of the cut.
 3. **Background filtering:** with `--control`, mutations also present in the control are discarded.
 4. **Desired edit:** with `--induced_sequence_path`, reads are re-aligned to the expected edited allele.
 5. **Report:** `combined_graphs.html`, an IGV session, and tables under `results/`.
@@ -30,7 +30,7 @@ CRISPRlungo refs/TRAC_WT.fa data/<label>.fastq.gz results/CRISPRLungo/<label> GA
 are merged before measuring, so a read whose insert is reported in several pieces is scored on the union of
 those pieces.
 
-`Induce_type` is **not** used: it compares each read with the whole expected allele, and with a multi-kb insert in ONT reads nearly every read is labelled `X`. Upstream's answer to that is `--large_induced_insertion`, which judges the junction anchors against a badread-simulated control; that code path crashed twice on upstream bugs (a missing `minimap2_opt` argument, then `[]` passed as `anchor_information`), so it is not used and the tool is not patched.
+`Induce_type` is **not** used: it compares each read with the whole expected allele, and with a multi-kb insert in ONT reads nearly every read is labelled `X`. Upstream's answer to that is `--large_induced_insertion`, which judges the junction anchors against a badread-simulated control; that path needs `badread`, which is **not** in `envs/kv.yml`, so `CRISPRlungo_insert_analysis.py:224` hard-errors before it can run. (An earlier note here blamed two upstream bugs; the `anchor_information` one is fixed at `e31ea36` — `CRISPRlungo.py:222,386` — so the missing dependency is the live reason.) It is not used and the tool is not patched.
 
 ## Reading the classes
 - **Edited samples are rarely WT.** Compare donor and no-donor samples with the mock control: the control should be almost all WT.

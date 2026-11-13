@@ -1,0 +1,33 @@
+shared:
+  ki_min_insert_frac: 0.8
+fetch:
+  bioproject: PRJNA1183863
+  min_len: 6000
+  max_len: 11500
+refs:
+  region: 14:22540000..22560000:1
+  pmc: PMC12497482
+build_refs:
+  genomic_fasta: data/raw_refs/hg38_chr14_22540000_22560000.fa
+  genomic_start_1based: 22540000
+  templates_xlsx: ""
+  template_title: TRAC 2.8 kb skip with a 500 bp right homology arm, ARCUS nuclease, AAV6 donor
+  donor_ki_fasta: configs/examples/example_arcus/donor_ki.fa
+  flank_bp: 500
+  guide: TGGCCTGGAGCAACAAATCTGA
+  cut_offset_from_guide_5p: 11
+  primer_f_full: CTCTGGAGTTAGGAGAGTTTTCAGC
+  primer_r_full: AAGAGGTTGACTTAGGCAGCTTGTT
+  primer_f_specific: CTCTGGAGTTAGGAGAGTTTTCAGC
+  primer_r_specific: AAGAGGTTGACTTAGGCAGCTTGTT
+  out_dir: refs
+alpine:
+  primer_check_length: 150
+  data_type: nanopore
+lungo:
+  cleavage_pos: 10
+  window: 25
+summarize: {}
+gui_serve:
+  host: 127.0.0.1
+  port: 8000

@@ -8,6 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
 SRR_RE = re.compile(r"^(SRR|ERR|DRR)[0-9]+$")
+TIERS = ("treated", "no_donor", "mock")
 
 ###################################### helpers
 def log(m): print(f"[PYTHON-INFO] {m}", flush=True)
@@ -18,6 +19,18 @@ def read_sheet(p):
 def submitted(root, sid):
     p = f"{root}/configs/samples/{sid}.json"
     return json.load(open(p)) if os.path.exists(p) else {}
+
+def tier(s):
+    t = (s.get("control_tier") or "").strip()
+    if t: return t
+    return "mock" if str(s.get("control")) in ("1", "true", "True") else "treated"
+
+def control_sample(samples):
+    rows = [(sid, tier(r)) for sid, r in samples.items()]
+    for want in ("mock", "no_donor"):
+        for sid, t in rows:
+            if t == want: return sid
+    return None
 
 def validate(samples):
     seen, errs = set(), []
@@ -32,8 +45,9 @@ def validate(samples):
         if not srr and not fq: errs.append(f"row {i}: give either an SRA run accession or a local FASTQ path")
         if srr and not SRR_RE.match(srr): errs.append(f"row {i}: {srr!r} is not an SRA run accession")
         if fq and not (os.path.isabs(fq) and os.path.isfile(fq)): errs.append(f"row {i}: fastq_path {fq!r} must be an absolute path to an existing file")
-    if not any(str(s.get("control")) in ("1", "true", "True") for s in samples):
-        errs.append("at least one sample must be marked as negative control (CRISPRLungo needs it)")
+        if tier(s) not in TIERS: errs.append(f"row {i}: control_tier {tier(s)!r} must be one of {', '.join(TIERS)}")
+    if not any(tier(s) in ("mock", "no_donor") for s in samples):
+        errs.append("at least one sample must have control_tier mock or no_donor (CRISPRLungo needs a control)")
     return errs
 
 def sha256(p):

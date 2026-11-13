@@ -49,9 +49,9 @@ def plan(name, root=ROOT):
     if not os.path.exists(f"{root}/{inp}/samples.tsv"): raise ValueError(f"{inp}/samples.tsv missing: create the analysis first with python3 src/analysis.py {name}")
     P = load_params(f"{root}/{inp}/params.yaml", root)
     samples = {r["sample_id"]: r for r in csv.DictReader(open(f"{root}/{inp}/samples.tsv"), delimiter="\t") if r["sample_id"]}
-    controls = [s for s, r in samples.items() if r.get("control") == "1"]
+    ctrl = analysis.control_sample(samples)
     if not samples: raise ValueError(f"{inp}/samples.tsv has no samples")
-    if not controls: raise ValueError(f"{inp}/samples.tsv: no sample has control=1 (CRISPRLungo needs one)")
+    if not ctrl: raise ValueError(f"{inp}/samples.tsv: no sample has control_tier mock or no_donor (CRISPRLungo needs one)")
     bad = [s for s in samples if not analysis.ID_RE.match(s)] + [r for r in (x.get("srr") for x in samples.values()) if r and not analysis.SRR_RE.match(r)]
     if bad or not BP_RE.match(str(P["fetch"]["bioproject"])): raise ValueError(f"invalid sample id, run accession or bioproject: {bad or P['fetch']['bioproject']}")
     def submitted(s):
@@ -78,8 +78,8 @@ def plan(name, root=ROOT):
         add(f"alpine_{s}", STEPS[2], f"alpine {s}", "alpine", "alpine.sh", [s, f"{a}/data/{s}.fastq.gz", f"{a}/ALPINE/{s}", P["alpine"]["primer_check_length"], P["alpine"]["data_type"], frac, 32, 128000],
             [f"{a}/ALPINE/{s}/{s}_read_classification.txt"], f"{a}/logs/03_alpine/{s}.log", [f"filter_{s}", "refs"], inputs=[f"{a}/data/{s}.fastq.gz"] + refs)
     for s in samples:
-        add(f"lungo_{s}", STEPS[3], f"lungo {s}", "lungo", "lungo.sh", [s, f"{a}/data/{s}.fastq.gz", f"{a}/data/{controls[0]}.fastq.gz", controls[0], f"{a}/CRISPRLungo", P["lungo"]["cleavage_pos"], P["lungo"]["window"], 32],
-            [f"{a}/CRISPRLungo/{s}/results/read_classification.txt"], f"{a}/logs/04_lungo/{s}.log", [f"filter_{s}", f"filter_{controls[0]}", "refs"], inputs=[f"{a}/data/{s}.fastq.gz", f"{a}/data/{controls[0]}.fastq.gz"] + refs)
+        add(f"lungo_{s}", STEPS[3], f"lungo {s}", "lungo", "lungo.sh", [s, f"{a}/data/{s}.fastq.gz", f"{a}/data/{ctrl}.fastq.gz", ctrl, f"{a}/CRISPRLungo", P["lungo"]["cleavage_pos"], P["lungo"]["window"], 32],
+            [f"{a}/CRISPRLungo/{s}/results/read_classification.txt"], f"{a}/logs/04_lungo/{s}.log", [f"filter_{s}", f"filter_{ctrl}", "refs"], inputs=[f"{a}/data/{s}.fastq.gz", f"{a}/data/{ctrl}.fastq.gz"] + refs)
     deps = [j["key"] for st in ("alpine", "lungo", "filter") for j in jobs if j["key"].startswith(st + "_")] + ["refs"]
     add("summary", STEPS[4], "summary", "summary", "summary.sh", [], [f"{a}/summary.tsv", f"{a}/summary_matrix.tsv", f"{a}/summary_classes.tsv"], f"{a}/logs/05_summary/summary.log", deps, inputs=[o for j in jobs if j["key"] in deps for o in j["outputs"]])
     check_paths(jobs, name, root)
