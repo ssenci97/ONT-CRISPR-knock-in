@@ -93,7 +93,7 @@ Each variable is listed with what it controls, the step that reads it, and the o
 - `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise. **Do not lower this below 21 for the example design:** the donor's PAM-blocking mutations sit at cut −3..0 and at **+20 bp**, so 25 clears the furthest one by only 4 bp. At the upstream default of 5 that mutation falls outside the window and CRISPRLungo warns.
   - step: `04_lungo`
   - original argument: CRISPRlungo `--window`
-- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job, set in `src/pipeline.py`. `get_best_node` uses them to choose a partition and node with enough free resources when each job is submitted.
+- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job. CPUs are fixed per tool (`RES` in `src/pipeline.py`); memory and time are learned from earlier runs (see [SLURM use](#slurm-use-one-node-a-core-budget-learned-memory)).
   - step: `every step`
   - original argument: `sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin
 
@@ -121,7 +121,7 @@ Each analysis freezes its own copy of these values in `results/<analysis>/inputs
 | Automatic | Done by |
 |---|---|
 | `module load singularity` | `build.sh` (line 4) and `gui_serve.py` |
-| node choice | `gui_serve.py` puts `src/sbatch_pick.sh` in front of `sbatch` |
+| node choice | `pipeline.py` asks `get_best_node` once per launch and pins every job to that node |
 
 ## Console
 
@@ -153,11 +153,13 @@ The screenshot below is a finished run of the example data.
 | **Run on SLURM** | runs `src/pipeline.py <name>` on the login node: freezes inputs into `results/<name>/inputs/`, submits the jobs with `sbatch --dependency` and exits; jobs run unattended, there is no local mode |
 | overall bar | finished jobs out of planned jobs |
 | step rows | waiting / running / done / failed / cancelled / stopped per step, from files on disk plus `squeue`/`sacct`, each labelled in words and marked ✓ ✕ ▶ rather than by colour alone. A job counts as done once its output exists and its log ends with the footer. Failed jobs open with their log tail. |
-| SLURM queue | only this run's jobs (`squeue -n <run id>`), with partition and node |
-| node choice | `results/<name>/logs/node_pick.log`, one line per submitted job |
+| SLURM queue | only this run's jobs, with partition and node |
+| node choice | `results/<name>/logs/node_pick.log`: per launch, the lanes, the chosen node and each job's CPUs / memory / time with where they came from |
 | header line | `image · singularity · sbatch · get_best_node`; a run is refused if `sbatch` or singularity is missing |
 | resume | the same name again: done jobs are kept, the rest (and everything downstream) is resubmitted |
-| stop | `pipeline.py <name> --stop` (`scancel` of this run's jobs) |
+| stop | `pipeline.py <name> --stop`: cancels this run's jobs (from `jobs.tsv` and any queued job tagged `kv:<name>:`), also while a launch is still submitting; re-checks up to 3 times and lists any job that survived |
+| stop all | every live job of every analysis |
+| launch lock | one Run at a time; the button stays disabled while `sbatch` calls are running |
 
 ### Results
 
@@ -186,15 +188,19 @@ The Results tab on the example data, in the **one plot per sample** layout.
 | `-L 8000:<node>:8000 <user>@<login-host>` refused | console binds loopback; use `-J` |
 | ssh to node refused | no job of yours on that node |
 
-## Node placement (`get_best_node`)
+## SLURM use: one node, a core budget, learned memory
 
-For each job `pipeline.py` submits, `src/sbatch_pick.sh`:
-1. reads `--cpus-per-task`, `--mem` and `-t`;
-2. keeps the partitions whose time limit covers the job, never DGX or GPU;
-3. asks `get_best_node` (`src/best_node.sh`) for the idle or mixed node with the most free CPUs and memory;
-4. submits with `-p <partition> -w <node>`.
+Each **Run on SLURM** (or `pipeline.py <name>`):
 
-If no node fits, the default partition (GENOA) is kept. `NODE_PICK=0` turns this off.
+1. **Guards.** It refuses to submit more than 100 jobs in one launch (split the samples), or to push your own queue past 200 jobs.
+2. **Budget.** An analysis never holds more than **32 cores and 256 GB** at once: half a GENOA node (64 cores, 512 GiB) or a quarter of an EPYC node. Jobs are put in lanes of the widest job (16 cores for ALPINE and CRISPRLungo, so 2 lanes). Each job also waits for the previous job in its lane (`--dependency=afterok:<real deps>,afterany:<lane predecessor>`).
+3. **One node.** `get_best_node` (`src/best_node.sh`, through `src/node_pick.sh`) is asked once for an idle or mixed CPU node with that budget free. It falls back to the biggest single job, and every job is submitted with `-p <partition> -w <node> -N 1`. Partitions without enough walltime, and DGX, GPU, H100 and UPDATE, are skipped. If no node fits, the jobs queue on GENOA without a pin. `NODE_PICK=0` turns the pick off.
+4. **Memory and time.** Every `jobs.tsv` row records the CPUs, memory, time and input bytes requested. Before submitting, `sacct` (MaxRSS, Elapsed, State) is read for every earlier job of the same tool in any analysis:
+   - memory = 1.5 × the highest peak seen + 512 MB (scaled up if this input is larger);
+   - time = 2 × the longest run + 10 min, kept within 15 min–48 h;
+   - a job that ended `OUT_OF_MEMORY` or `TIMEOUT` doubles what it had asked for.
+
+   With no history yet, the defaults in `RES` are used. Memory stays within 1–256 GB.
 
 ## Pipeline
 

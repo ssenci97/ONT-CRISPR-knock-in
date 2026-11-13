@@ -378,7 +378,7 @@ async function refreshStatus() {
   const st = s.state || {}, rs = $("#run-state");
   rs.textContent = "";
   rs.append(badge(s.outcome));
-  if (st.started_at) rs.append(el("strong", null, st.analysis), el("span", "muted", `started ${st.started_at} · ${(st.samples || []).length} samples · results/${st.analysis}/`));
+  if (st.started_at) rs.append(el("strong", null, st.analysis), el("span", "muted", `started ${st.started_at} · ${(st.samples || []).length} samples${st.node ? ` · node ${st.node}` : ""} · results/${st.analysis}/`));
   else if (name) rs.append(el("strong", null, name));
   const ov = $("#overall");
   ov.hidden = !s.progress;
@@ -400,8 +400,11 @@ async function launch() {
   const analysis = currentAnalysis(), rs = $("#run-state");
   if (!analysis) { rs.textContent = ""; rs.append(badge("failed", "name required")); return; }
   const examples = state.example === "all" ? state.examples.map((e) => e.name) : [];
-  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis, examples }) });
-  const body = await res.json();
+  const btn = $("#run-sbatch"); btn.disabled = true;
+  rs.textContent = ""; rs.append(badge("waiting", "submitting…"));
+  let res, body;
+  try { res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis, examples }) }); body = await res.json(); }
+  finally { btn.disabled = false; }
   if (!res.ok) { rs.textContent = ""; rs.append(badge("failed", "not started"), el("span", null, (body.errors || ["failed"]).join("; "))); return; }
   if (!body.started) return refreshStatus();
   $("#analysis").value = body.analysis;
@@ -726,9 +729,27 @@ $("#reload").addEventListener("click", loadSaved);
 $("#submit").addEventListener("click", submit);
 $("#run-sbatch").addEventListener("click", launch);
 $("#analysis").addEventListener("input", renderRunNote);
+function stopReport(rs, results) {
+  for (const [n, r] of Object.entries(results)) {
+    rs.append(el("span", "muted", `${n}: ${r.cancelled.length} cancelled`));
+    if (r.remaining.length) rs.append(badge("failed", `${n} still live`), el("span", null, `scancel ${r.remaining.join(" ")}`));
+  }
+}
 $("#stop").addEventListener("click", async () => {
-  await fetch("/api/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis: currentAnalysis() }) });
-  refreshStatus();
+  const b = $("#stop"); b.disabled = true;
+  const r = await (await fetch("/api/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis: currentAnalysis() }) })).json();
+  await refreshStatus();
+  stopReport($("#run-state"), { [currentAnalysis()]: r });
+});
+$("#stop-all").addEventListener("click", async () => {
+  if (!confirm("Cancel every live SLURM job of every analysis?")) return;
+  const b = $("#stop-all"); b.disabled = true;
+  const r = await (await fetch("/api/stop_all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json();
+  b.disabled = false;
+  await refreshStatus();
+  const rs = $("#run-state");
+  if (!Object.keys(r.analyses).length) rs.append(el("span", "muted", "no live jobs found"));
+  stopReport(rs, r.analyses);
 });
 $("#pick").addEventListener("change", () => { if ($("#pick").value) { $("#analysis").value = $("#pick").value; renderRunNote(); refreshStatus(); } });
 $("#pick-results").addEventListener("change", refreshResults);

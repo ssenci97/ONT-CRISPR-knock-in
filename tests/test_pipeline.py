@@ -12,14 +12,15 @@ FAKES = {
     "sbatch": '''#!/bin/bash
 n=$(( $(cat "$FAKE/count" 2>/dev/null || echo 0) + 1 )); echo $n > "$FAKE/count"
 [ "$n" = "$(cat "$FAKE/fail_at" 2>/dev/null)" ] && { echo "boom" >&2; exit 1; }
+[ "$n" = "$(cat "$FAKE/stop_at" 2>/dev/null)" ] && touch "$KV_ROOT/results/$KV_ANALYSIS/.stop"
 id=$((1000 + n)); prev=""; ok=0
 for a in "$@"; do [ "$prev" = "-o" ] && [ -d "$(dirname "$a")" ] && ok=1; prev=$a; done
 { printf '%s\\t%s' "$id" "$ok"; printf '\\t%s' "$@"; echo; } >> "$FAKE/calls.tsv"
 env > "$FAKE/env_$id.txt"; echo "$id"
 ''',
-    "squeue": '#!/bin/bash\ncat "$FAKE/squeue.txt" 2>/dev/null; true\n',
+    "squeue": '#!/bin/bash\ncase "$*" in *"%i|%k"*) cat "$FAKE/squeue_k.txt" 2>/dev/null;; *) cat "$FAKE/squeue.txt" 2>/dev/null;; esac; true\n',
     "sacct": '#!/bin/bash\ncat "$FAKE/sacct.txt" 2>/dev/null; true\n',
-    "scancel": '#!/bin/bash\necho "$@" >> "$FAKE/scancel.txt"\n',
+    "scancel": '#!/bin/bash\necho "$@" >> "$FAKE/scancel.txt"\n[ -e "$FAKE/stuck" ] || for i in "$@"; do sed -i "/^$i|/d" "$FAKE/squeue.txt" 2>/dev/null; done; true\n',
     "singularity": '#!/bin/bash\nshift\nwhile [[ "$1" == --* ]]; do [ "$1" = --bind ] && shift; shift; done\nshift\nexec "$@"\n',
 }
 
@@ -34,6 +35,7 @@ class Env:
         for k, v in FAKES.items():
             (self.fake / "bin" / k).write_text(v); (self.fake / "bin" / k).chmod(0o755)
         for k, v in dict(PATH=f"{self.fake}/bin:{os.environ['PATH']}", FAKE=str(self.fake), NODE_PICK="0", KV_SIF="/x/fake.sif", SLURM_JOB_ID="9", SBATCH_PARTITION="X").items(): monkeypatch.setenv(k, v)
+        monkeypatch.setattr(pl, "STOP_PAUSE", 0)
         pl.analysis.create(N, str(self.root))
     @property
     def r(self): return str(self.root)
@@ -83,7 +85,7 @@ def test_plan_paths_and_resources(e):
         assert all(p.startswith(ok) for p in j["outputs"] + [j["log"]]), j["key"]
         assert (j["cpus"], j["mem_mb"], j["minutes"]) == pl.RES[j["key"].split("_")[0]]
     a = keys(e)["alpine_A"]
-    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (32, 128000, 1440)
+    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (16, 64000, 1440)
 
 def test_plan_local_fastq_is_bound(e):
     assert keys(e)["filter_C"]["binds"] == [str(e.fq.parent)]
@@ -95,9 +97,9 @@ def test_fresh_submit(e):
     assert [c["key"] for c in calls] == [j["key"] for j in plan] and len(calls) == 14
     ids = {c["key"]: c["id"] for c in calls}
     for c, j in zip(calls, plan):
-        dep = [a for a in c["argv"] if a.startswith("--dependency=")]
+        dep = {k: v.split(":") for k, _, v in (x.partition(":") for a in c["argv"] if a.startswith("--dependency=") for x in a.removeprefix("--dependency=").split(","))}
         want = [ids[d] for d in j["deps"]]
-        assert dep == ([f"--dependency=afterok:{':'.join(want)}"] if want else []), j["key"]
+        assert dep.get("afterok", []) == want and len(dep.get("afterany", [])) <= 1, j["key"]
         assert c["odir"] == "1"
         assert all(os.path.isdir(os.path.dirname(o)) for o in j["outputs"])
         env = dict(l.split("=", 1) for l in (e.fake / f"env_{c['id']}.txt").read_text().splitlines() if "=" in l)
@@ -106,12 +108,47 @@ def test_fresh_submit(e):
         assert env["KV_OUTPUTS"] == ":".join(j["outputs"])
     assert all(o["state"] == "submitted" for o in out)
     rows = (e.root / "results" / N / "jobs.tsv").read_text().splitlines()
-    assert rows[0] == "key\tstep\tlabel\tjobid\tlog" and len(rows) == 15
+    assert rows[0] == "\t".join(pl.COLS) and len(rows) == 15
 
 def test_resources_reach_sbatch(e):
     pl.submit(N, e.r)
     a = next(c["argv"] for c in e.calls() if c["key"] == "alpine_A")
-    assert a[a.index("-c") + 1] == "32" and "--mem=128000" in a and a[a.index("-t") + 1] == "1440"
+    assert a[a.index("-c") + 1] == "16" and "--mem=64000" in a and a[a.index("-t") + 1] == "1440"
+    assert a[a.index("-p") + 1] == "GENOA" and a[a.index("-N") + 1] == "1" and a[a.index("--comment") + 1] == f"kv:{N}:alpine_A"
+    assert a[-2:] == ["16", "64000"]
+
+def test_lanes_keep_the_analysis_within_the_cpu_budget(e):
+    pl.submit(N, e.r)
+    calls, by = e.calls(), {j["key"]: j for j in pl.plan(N, e.r)}
+    lane = {c["key"]: next((x.split(":")[1] for a in c["argv"] if a.startswith("--dependency=") for x in a.removeprefix("--dependency=").split(",") if x.startswith("afterany:")), None) for c in calls}
+    deps = {c["key"]: {i for a in c["argv"] if a.startswith("--dependency=") for x in a.removeprefix("--dependency=").split(",") for i in x.split(":")[1:]} for c in calls}
+    ids = {c["key"]: c["id"] for c in calls}
+    heads = [k for k in ids if not deps[k] & set(ids.values())]
+    n = pl.BUDGET_CPUS // max(j["cpus"] for j in by.values())
+    chained = {k for k in ids if lane[k] or set(ids[d] for d in by[k]["deps"])}
+    assert n == 2 and len(set(ids) - chained) <= n and sum(by[k]["cpus"] for k in heads) <= pl.BUDGET_CPUS
+    log = (e.root / "results" / N / "logs/node_pick.log").read_text()
+    assert "2 lane(s) of 16 cpus (budget 32 cpus 256 GB)" in log and "default (no finished run yet)" in log
+
+def test_too_many_jobs_refused_before_any_sbatch(e, monkeypatch):
+    monkeypatch.setattr(pl, "MAX_JOBS", 5)
+    with pytest.raises(ValueError, match="limit of 5"): pl.submit(N, e.r)
+    assert e.calls() == []
+
+def test_full_user_queue_refused(e, monkeypatch):
+    monkeypatch.setattr(pl, "MAX_USER_JOBS", 20)
+    e.put("squeue.txt", "".join(f"{900 + i}|RUNNING\n" for i in range(10)))
+    with pytest.raises(RuntimeError, match="already have 10 jobs"): pl.submit(N, e.r)
+    assert e.calls() == []
+
+def test_sizing_learns_from_finished_and_oom_jobs(e):
+    d = e.root / "results/other"; d.mkdir(parents=True)
+    (d / "jobs.tsv").write_text("\t".join(pl.COLS) + "\nalpine_X\ts\tl\t77\t/x\t\t16\t64000\t1440\t0\nlungo_X\ts\tl\t78\t/x\t\t16\t64000\t1440\t0\n")
+    e.put("sacct.txt", "77|COMPLETED|||\n77.batch||2048M|00:10:00\n78|OUT_OF_MEMORY||00:05:00\n")
+    pl.submit(N, e.r)
+    a = {c["key"]: c["argv"] for c in e.calls()}
+    assert "--mem=3584" in a["alpine_A"] and a["alpine_A"][a["alpine_A"].index("-t") + 1] == "30"
+    assert "--mem=128000" in a["lungo_A"] and "learned from 1 finished run(s)" in (e.root / "results" / N / "logs/node_pick.log").read_text()
 
 ###################################### done check
 def test_all_done_submits_nothing(e):
@@ -223,8 +260,25 @@ def test_invalid_analysis_name_refused(e, dry):
 
 def test_stop_cancels_jobs_from_jobs_tsv(e):
     pl.submit(N, e.r)
-    assert pl.stop(N, e.r) == 14
-    assert (e.fake / "scancel.txt").read_text().split() == [str(1001 + i) for i in range(14)]
+    ids = [str(1001 + i) for i in range(14)]
+    e.put("squeue.txt", "".join(f"{i}|PENDING\n" for i in ids))
+    assert pl.stop(N, e.r) == dict(cancelled=ids, remaining=[])
+    assert (e.fake / "scancel.txt").read_text().split() == ids and not (e.root / "results" / N / ".stop").exists()
+
+def test_stop_also_sweeps_tagged_jobs_missing_from_jobs_tsv(e):
+    e.put("squeue_k.txt", f"555|kv:{N}:alpine_A\n556|kv:{N}x:alpine_A\n557|kv:other:x\n")
+    e.put("squeue.txt", "555|RUNNING\n556|RUNNING\n557|RUNNING\n")
+    assert pl.stop(N, e.r) == dict(cancelled=["555"], remaining=[])
+
+def test_stop_reports_jobs_that_survive_scancel(e):
+    pl.submit(N, e.r); e.put("stuck", ""); e.put("squeue.txt", "1001|RUNNING\n")
+    assert pl.stop(N, e.r) == dict(cancelled=[], remaining=["1001"])
+    assert (e.fake / "scancel.txt").read_text().split() == ["1001"] * 3
+
+def test_stop_during_submit_cancels_what_was_submitted(e):
+    e.put("stop_at", "3")
+    with pytest.raises(RuntimeError, match="stopped while submitting: 3"): pl.submit(N, e.r)
+    assert (e.fake / "scancel.txt").read_text().split() == ["1001", "1002", "1003"] and len(e.calls()) == 3
 
 ###################################### kv_job.sh
 STEP = '''#!/bin/bash
@@ -277,3 +331,18 @@ def test_cli_refusal_exits_nonzero(e):
     for name in ("../x", "nope"):
         r = cli(e, name, "--dry-run")
         assert r.returncode != 0 and "!!" in r.stderr
+
+###################################### node_pick.sh
+FAKE_SINFO = '''#!/bin/bash
+case "$*" in
+  *"%P %l"*) printf 'GENOA* 2-00:00:00\\nDGX 6-06:00:00\\nSHORT 01:00:00\\n';;
+  *) printf 'genoa01 GENOA mix 56/8/0/64 512000 100000\\ngenoa02 GENOA mix 16/48/0/64 512000 200000\\ngenoa03 GENOA drain 0/64/0/64 512000 0\\n';;
+esac
+'''
+
+def test_node_pick_finds_a_node_with_the_budget_free(tmp_path):
+    (tmp_path / "sinfo").write_text(FAKE_SINFO); (tmp_path / "sinfo").chmod(0o755)
+    run = lambda *a: subprocess.run([f"{ROOT}/src/node_pick.sh", *a], capture_output=True, text=True, env=dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}"))
+    r = run("32", "256000", "1440")
+    assert r.stdout.split() == ["genoa02", "GENOA"] and "genoa02" in r.stderr
+    assert run("64", "1000", "1440").stdout.strip() == ""

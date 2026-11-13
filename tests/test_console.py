@@ -23,7 +23,8 @@ cat "$(dirname "$0")/sacct.txt" 2>/dev/null
 exit 0
 """
 FAKE_SCANCEL = """#!/bin/sh
-echo "$@" >> "$(dirname "$0")/scancel.log"
+d="$(dirname "$0")"; echo "$@" >> "$d/scancel.log"
+for i in "$@"; do sed -i "/^$i|/d" "$d/live" 2>/dev/null; done; true
 """
 
 @pytest.fixture
@@ -44,6 +45,7 @@ def server(tmp_path, monkeypatch):
                      SAMPLES_DIR=str(tmp_path / "configs/samples"), EXAMPLES=str(tmp_path / "configs/examples"), DEFAULT_SIF=str(tmp_path / "none.sif")).items():
         monkeypatch.setattr(g, k, v)
     monkeypatch.setattr(g.analysis, "ROOT", str(tmp_path))
+    monkeypatch.setattr(g.pipeline, "STOP_PAUSE", 0)
     from http.server import ThreadingHTTPServer
     import threading
     srv = ThreadingHTTPServer(("127.0.0.1", 0), g.Handler)
@@ -169,10 +171,26 @@ def test_tampered_frozen_input_is_refused_with_the_pipeline_message(server):
 def test_stop_calls_scancel(server):
     base, tmp = server
     post(f"{base}/api/run", analysis="run_one")
+    set_live(tmp, jobs_tsv(tmp).values(), "PENDING")
     body, code = post(f"{base}/api/stop", analysis="run_one")
-    assert code == 200 and body["stopped"]
+    assert code == 200 and body["stopped"] and body["remaining"] == []
     assert set((tmp / "bin/scancel.log").read_text().split()) == set(jobs_tsv(tmp).values())
     assert post(f"{base}/api/stop", analysis="nope")[0]["stopped"] is False
+
+def test_stop_all_cancels_every_analysis(server):
+    base, tmp = server
+    post(f"{base}/api/run", analysis="ex", examples=["example_arcus", "example_nitulescu"])
+    ids = list(jobs_tsv(tmp, "ex_arcus").values()) + list(jobs_tsv(tmp, "ex_nitulescu").values())
+    set_live(tmp, ids)
+    body, _ = post(f"{base}/api/stop_all")
+    assert set(body["analyses"]) == {"ex_arcus", "ex_nitulescu"} and not (tmp / "bin/live").read_text().strip()
+
+def test_second_launch_refused_while_one_is_submitting(server):
+    base, _ = server
+    assert g.LAUNCH.acquire(blocking=False)
+    try: body, code = post(f"{base}/api/run", analysis="run_one")
+    finally: g.LAUNCH.release()
+    assert code == 400 and "in progress" in body["errors"][0]
 
 def test_path_lists_fastq_and_dirs(server):
     base, tmp = server

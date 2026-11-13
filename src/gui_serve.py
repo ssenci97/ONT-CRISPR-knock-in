@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Serve the KNOCKIN-VAL console on localhost: submit samples, launch the pipeline, follow it and read the results."""
-import argparse, datetime, json, os, resource, shutil, subprocess, sys, time
+import argparse, datetime, json, os, resource, shutil, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -23,6 +23,7 @@ FAILED = {"FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "BOOT_FAIL", "DEADL
 RUNNING = {"RUNNING", "CONFIGURING", "COMPLETING"}
 FASTQ_EXT = (".fastq", ".fastq.gz", ".fq", ".fq.gz")
 PARAMS = dict(host="127.0.0.1", port=8000)
+LAUNCH = threading.Lock()
 
 def run_log(name): return f"{RESULTS}/{name}/run.log"
 def run_state(name): return f"{RESULTS}/{name}/run_state.json"
@@ -175,13 +176,18 @@ def launch(name, src=None):
         return None, bad or [l for l in sec.splitlines() if l.strip()][-5:]
     st = dict(analysis=name, mode="slurm", node_pick=rt["node_pick"], started_at=f"{datetime.datetime.now():%F %T}",
               engine=rt["engine"], image=rt["sif"], new=new, samples=json.load(open(f"{a_dir}/inputs/analysis.json"))["samples"],
-              submitted=sum(bool(r["jobid"]) for r in pipeline.read_jobs(name, ROOT)))
+              submitted=sum(bool(r["jobid"]) for r in pipeline.read_jobs(name, ROOT)), node=next((r.get("node") for r in pipeline.read_jobs(name, ROOT) if r.get("node")), ""))
     if src: st["source"] = os.path.relpath(src, ROOT)
     json.dump(st, open(run_state(name), "w"), indent=2)
     log(f"{'started' if new else 'resumed'} analysis {name}, {st['submitted']} job(s) submitted ({st['mode']})" + (f" from {st['source']}" if src else ""))
     return st, None
 
 def start_run(name, wanted=()):
+    if not LAUNCH.acquire(blocking=False): return None, "a launch is already in progress: wait for it to finish"
+    try: return start_locked(name, wanted)
+    finally: LAUNCH.release()
+
+def start_locked(name, wanted):
     if not wanted:
         err = preflight(True)
         return (None, err) if err else launch(name)
@@ -201,9 +207,14 @@ def start_run(name, wanted=()):
     return dict(analysis=started[0]["analysis"], started=started, errors=errors), None
 
 def stop_run(name):
-    n = pipeline.stop(name, ROOT)
-    if n: log(f"analysis {name}: cancelled {n} job(s)")
-    return n > 0
+    try: r = pipeline.stop(name, ROOT)
+    except ValueError: return dict(stopped=False, cancelled=[], remaining=[])
+    log(f"analysis {name}: cancelled {len(r['cancelled'])} job(s)" + (f", !! still live: {' '.join(r['remaining'])}" if r["remaining"] else ""))
+    return dict(r, stopped=bool(r["cancelled"]))
+
+def stop_all():
+    out = {a["name"]: stop_run(a["name"]) for a in analyses()}
+    return {n: r for n, r in out.items() if r["cancelled"] or r["remaining"]}
 
 def tail(path, n=40):
     if not os.path.exists(path): return ""
@@ -340,7 +351,8 @@ class Handler(BaseHTTPRequestHandler):
             st, err = start_run((body.get("analysis") or "").strip(), [str(x) for x in body.get("examples") or []])
             if err: return self.send_json(400, dict(errors=err if isinstance(err, list) else [err]))
             return self.send_json(200, st)
-        if self.path == "/api/stop": return self.send_json(200, dict(stopped=stop_run((body.get("analysis") or "").strip())))
+        if self.path == "/api/stop": return self.send_json(200, stop_run((body.get("analysis") or "").strip()))
+        if self.path == "/api/stop_all": return self.send_json(200, dict(analyses=stop_all()))
         self.send_json(404, dict(error="not found"))
 
 ###################################### main
