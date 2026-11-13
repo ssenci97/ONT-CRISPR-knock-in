@@ -34,9 +34,8 @@ code { font-size: .9em; background: var(--fill); padding: 1px 6px; border-radius
 .pill:disabled { opacity: .45; cursor: default; }
 .pill:focus-visible, .seg button:focus-visible, .icon-btn:focus-visible { outline: 3px solid rgba(0,113,227,.55); outline-offset: 2px; }
 .pill.blue { background: var(--blue); color: #fff; }
-.pill.purple { background: var(--purple); color: #fff; }
-.pill.purple.on { box-shadow: 0 0 0 2px var(--bg, #fff), 0 0 0 4px var(--purple); }
-.examples { display: contents; }
+.badge.tag { background: #efe3f6; color: var(--purple); margin-left: 8px; }
+#run-note { margin-top: 4px; }
 .pill.black { background: var(--black); color: #fff; }
 .pill.red { background: transparent; color: var(--red); box-shadow: inset 0 0 0 1.5px var(--red); }
 .pill.plain { background: transparent; color: var(--blue); }

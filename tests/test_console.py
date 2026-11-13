@@ -33,6 +33,7 @@ def server(tmp_path, monkeypatch):
     shutil.copy(f"{ROOT}/configs/param_configs.yaml", tmp_path / "configs/param_configs.yaml")
     shutil.copy(f"{ROOT}/configs/sample_schema.json", tmp_path / "configs/sample_schema.json")
     shutil.copy(f"{ROOT}/containers/images.env", tmp_path / "containers/images.env")
+    shutil.copytree(f"{ROOT}/configs/examples", tmp_path / "configs/examples")
     bin = tmp_path / "bin"; bin.mkdir()
     for t, body in dict(singularity="#!/bin/sh\nexit 0\n", sbatch=FAKE_SBATCH, squeue=FAKE_SQUEUE, sacct=FAKE_SACCT, scancel=FAKE_SCANCEL).items():
         (bin / t).write_text(body); (bin / t).chmod(0o755)
@@ -40,7 +41,7 @@ def server(tmp_path, monkeypatch):
     monkeypatch.setenv("NODE_PICK", "0")
     for k, v in dict(ROOT=str(tmp_path), RESULTS=str(tmp_path / "results"), GUI=f"{ROOT}/gui",
                      SCHEMA=str(tmp_path / "configs/sample_schema.json"), SAMPLES_TSV=str(tmp_path / "configs/samples.tsv"),
-                     SAMPLES_DIR=str(tmp_path / "configs/samples"), DEFAULT_SIF=str(tmp_path / "none.sif")).items():
+                     SAMPLES_DIR=str(tmp_path / "configs/samples"), EXAMPLES=str(tmp_path / "configs/examples"), DEFAULT_SIF=str(tmp_path / "none.sif")).items():
         monkeypatch.setattr(g, k, v)
     monkeypatch.setattr(g.analysis, "ROOT", str(tmp_path))
     from http.server import ThreadingHTTPServer
@@ -86,6 +87,33 @@ def test_second_run_is_refused_while_one_is_live(server):
     set_live(tmp, jobs_tsv(tmp).values())
     body, code = post(f"{base}/api/run", analysis="run_two")
     assert code == 400 and "still running" in body["errors"][0]
+
+def test_examples_are_listed_by_short_name(server):
+    base, _ = server
+    ex = get(f"{base}/api/examples")["examples"]
+    assert [e["short"] for e in ex] == ["arcus", "nitulescu"] and all(e["samples"] and e["title"] for e in ex)
+
+def test_all_examples_launch_one_analysis_each(server):
+    base, tmp = server
+    names = [e["name"] for e in get(f"{base}/api/examples")["examples"]]
+    body, code = post(f"{base}/api/run", analysis="ex", examples=names)
+    assert code == 200 and body["errors"] == {} and [s["analysis"] for s in body["started"]] == ["ex_arcus", "ex_nitulescu"]
+    for n in names:
+        a, src = tmp / f"results/ex_{n.removeprefix('example_')}", tmp / f"configs/examples/{n}"
+        assert (a / "inputs/params.yaml").read_text() == (src / "param_configs.yaml").read_text()
+        assert (a / "inputs/samples.tsv").read_text() == (src / "samples.tsv").read_text()
+        assert json.load(open(a / "inputs/analysis.json"))["source"] == f"configs/examples/{n}"
+        assert all(jobs_tsv(tmp, a.name).values())
+    assert (tmp / "configs/samples.tsv").read_text() == SHEET
+
+def test_unknown_example_and_live_run_refuse_all(server):
+    base, tmp = server
+    body, code = post(f"{base}/api/run", analysis="ex", examples=["example_nope"])
+    assert code == 400 and body["errors"] == ["unknown example example_nope"]
+    post(f"{base}/api/run", analysis="run_one")
+    set_live(tmp, jobs_tsv(tmp).values())
+    body, code = post(f"{base}/api/run", analysis="ex", examples=["example_arcus", "example_nitulescu"])
+    assert code == 400 and "still running" in body["errors"][0] and not (tmp / "results/ex_arcus").exists()
 
 def test_bad_sheet_and_bad_name_are_refused(server):
     base, tmp = server

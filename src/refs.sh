@@ -12,6 +12,7 @@ PY
 )"
 ###################################### download (cache shared by all analyses)
 mkdir -p "$(dirname "$genomic_fasta")" data/raw_refs/supp
+exec 9>data/raw_refs/.lock; flock 9
 [ -s "$genomic_fasta" ] || { kv_log "hg38 $region"; curl -sSf "https://rest.ensembl.org/sequence/region/human/$region?content-type=text/x-fasta" > "$genomic_fasta.tmp"; mv "$genomic_fasta.tmp" "$genomic_fasta"; }
 if [ -n "$donor_ki_fasta" ]; then
   [ -s "$donor_ki_fasta" ] || { kv_log "donor_ki_fasta $donor_ki_fasta is missing"; exit 1; }
@@ -28,6 +29,7 @@ for f in "${pin_files[@]}"; do
   elif [ "$want" != "$got" ]; then kv_log "$f does not match $pins ($got vs $want)"; exit 1
   else kv_log "$f matches $pins"; fi
 done
+flock -u 9
 ###################################### build
 rm -f "$KV_OUT"/refs/{TRAC_WT.fa,TRAC_KI.fa,CAR_insert.fa,design.json} "$KV_OUT"/refs/alpine/{ref.fa,config.tsv}
 python3 src/build_refs.py --yaml-in --params "$PARAMS" --out-dir "$KV_OUT/refs"

@@ -69,9 +69,9 @@ def examples():
         d = f"{EXAMPLES}/{n}"
         if not (os.path.exists(f"{d}/samples.tsv") and os.path.exists(f"{d}/param_configs.yaml")): continue
         m = read_yaml(f"{d}/meta.yaml")
-        out.append(dict(name=n, title=m.get("title", n), button=m.get("button", n), credit=m.get("credit", ""),
+        out.append(dict(name=n, short=n.removeprefix("example_"), title=m.get("title", n), credit=m.get("credit", ""),
                         samples=[{k: v for k, v in r.items() if v} for r in tsv_rows(f"{d}/samples.tsv")]))
-    return sorted(out, key=lambda e: e["title"])
+    return sorted(out, key=lambda e: e["short"])
 
 def apply_example(name):
     if name not in {e["name"] for e in examples()}: return None
@@ -150,14 +150,18 @@ def live_rows(name):
     rows, st = job_states(name)
     return [r for r in rows if st.get(r["jobid"]) in LIVE]
 
-def start_run(name):
+def preflight(need_sheet):
     for a in analyses():
-        if live_rows(a["name"]): return None, f"analysis {a['name']} is still running"
-    if not os.path.exists(SAMPLES_TSV): return None, "no configs/samples.tsv -- submit samples first"
+        if live_rows(a["name"]): return f"analysis {a['name']} is still running"
+    if need_sheet and not os.path.exists(SAMPLES_TSV): return "no configs/samples.tsv -- submit samples first"
     rt = runtime()
-    if not rt["sbatch"]: return None, "sbatch not found: start the console on the cluster login node"
-    if not rt["apptainer"]: return None, "singularity not on PATH (module load singularity before starting the console)"
-    try: a_dir, new, errs = analysis.create(name, ROOT)
+    if not rt["sbatch"]: return "sbatch not found: start the console on the cluster login node"
+    if not rt["apptainer"]: return "singularity not on PATH (module load singularity before starting the console)"
+    return None
+
+def launch(name, src=None):
+    rt = runtime()
+    try: a_dir, new, errs = analysis.create(name, ROOT, src)
     except ValueError as e: return None, str(e)
     if errs: return None, errs
     cmd = ["python3", PIPELINE, name, "--root", ROOT]
@@ -172,9 +176,29 @@ def start_run(name):
     st = dict(analysis=name, mode="slurm", node_pick=rt["node_pick"], started_at=f"{datetime.datetime.now():%F %T}",
               engine=rt["engine"], image=rt["sif"], new=new, samples=json.load(open(f"{a_dir}/inputs/analysis.json"))["samples"],
               submitted=sum(bool(r["jobid"]) for r in pipeline.read_jobs(name, ROOT)))
+    if src: st["source"] = os.path.relpath(src, ROOT)
     json.dump(st, open(run_state(name), "w"), indent=2)
-    log(f"{'started' if new else 'resumed'} analysis {name}, {st['submitted']} job(s) submitted ({st['mode']})")
+    log(f"{'started' if new else 'resumed'} analysis {name}, {st['submitted']} job(s) submitted ({st['mode']})" + (f" from {st['source']}" if src else ""))
     return st, None
+
+def start_run(name, wanted=()):
+    if not wanted:
+        err = preflight(True)
+        return (None, err) if err else launch(name)
+    known = {e["name"]: e for e in examples()}
+    bad = [w for w in wanted if w not in known]
+    if bad: return None, [f"unknown example {w}" for w in bad]
+    if not analysis.NAME_RE.match(name or ""): return None, f"analysis name {name!r}: use letters, digits, _ . - (max 64)"
+    err = preflight(False)
+    if err: return None, err
+    started, errors = [], {}
+    for w in wanted:
+        n = f"{name}_{known[w]['short']}"
+        st, e = launch(n, f"{EXAMPLES}/{w}")
+        if st: started.append(st)
+        else: errors[n] = e if isinstance(e, list) else [e]
+    if not started: return None, [f"{n}: {m}" for n, ms in errors.items() for m in ms]
+    return dict(analysis=started[0]["analysis"], started=started, errors=errors), None
 
 def stop_run(name):
     n = pipeline.stop(name, ROOT)
@@ -313,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
             out = save(body["samples"])
             return self.send_json(200, dict(out, params_yaml=apply_example(ex) if ex else None))
         if self.path == "/api/run":
-            st, err = start_run((body.get("analysis") or "").strip())
+            st, err = start_run((body.get("analysis") or "").strip(), [str(x) for x in body.get("examples") or []])
             if err: return self.send_json(400, dict(errors=err if isinstance(err, list) else [err]))
             return self.send_json(200, st)
         if self.path == "/api/stop": return self.send_json(200, dict(stopped=stop_run((body.get("analysis") or "").strip())))

@@ -31,7 +31,7 @@
   <section id="tab-samples">
     <div class="toolbar">
       <button id="toggle-info" type="button" class="pill black"><svg class="ic"><use href="#i-info"/></svg><span>Hide info</span></button>
-      <span id="examples" class="examples"></span>
+      <select id="example" class="inline" title="Load an example by name, or all of them"></select>
       <button id="clear" type="button" class="pill red"><svg class="ic"><use href="#i-trash"/></svg>Clear</button>
     </div>
     <div id="info" class="card info"></div>
@@ -58,6 +58,7 @@
         <span class="grow"></span>
         <label class="switch"><input type="checkbox" id="auto" checked><span></span>Auto-refresh</label>
       </div>
+      <p id="run-note" class="muted" hidden></p>
       <div id="run-state"></div>
       <div id="overall" class="bar-wrap" hidden><div class="bar"><i></i></div><span class="bar-label"></span></div>
     </div>

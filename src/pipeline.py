@@ -66,9 +66,9 @@ def plan(name, root=ROOT):
         c, m, t = RES[kind]
         jobs.append(dict(key=key, inputs=[x if os.path.isabs(x) else ab(x) for x in inputs], step=step, label=label, script=f"src/{script}", args=[str(x) for x in args], outputs=[ab(o) for o in outputs], log=ab(logp), cpus=c, mem_mb=m, minutes=t, deps=list(dict.fromkeys(deps)), shared=shared, binds=list(binds)))
     if runs:
-        meta = f"data/meta/{P['fetch']['bioproject']}_ena.tsv"
-        add("ena", STEPS[0], "ena filereport", "ena", "ena.sh", [P["fetch"]["bioproject"], meta], [meta], f"{a}/logs/01_fetch/ena.log", shared=True)
-        for r in runs: add(f"download_{r}", STEPS[0], f"download {r}", "download", "download.sh", [r, meta, f"data/raw/{r}.fastq.gz", 16], [f"data/raw/{r}.fastq.gz"], f"{a}/logs/01_fetch/download_{r}.log", ["ena"], True, inputs=[meta])
+        meta, ena = f"data/meta/{P['fetch']['bioproject']}_ena.tsv", f"ena_{P['fetch']['bioproject']}"
+        add(ena, STEPS[0], "ena filereport", "ena", "ena.sh", [P["fetch"]["bioproject"], meta], [meta], f"{a}/logs/01_fetch/ena.log", shared=True)
+        for r in runs: add(f"download_{r}", STEPS[0], f"download {r}", "download", "download.sh", [r, meta, f"data/raw/{r}.fastq.gz", 16], [f"data/raw/{r}.fastq.gz"], f"{a}/logs/01_fetch/download_{r}.log", [ena], True, inputs=[meta])
     for s, r in samples.items():
         raw = local[s] or f"data/raw/{r['srr']}.fastq.gz"
         add(f"filter_{s}", STEPS[0], f"filter {s}", "filter", "filter.sh", [s, r.get("srr") or "local", raw, f"{a}/data/{s}.fastq.gz", f"{a}/data/stats/{s}.tsv", P["fetch"]["min_len"], P["fetch"]["max_len"], 16],

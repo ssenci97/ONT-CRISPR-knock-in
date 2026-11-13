@@ -1,10 +1,11 @@
 """Pipeline driver: job plan, DAG submission through fake SLURM tools, file-based done check, safety refusals, kv_job.sh output verification and the CLI."""
 import fcntl, glob, gzip, os, shutil, subprocess, sys
-import pytest
+import pytest, yaml
 from conftest import ROOT, load
 
 pl = load("pipeline")
 N = "t"
+ENA = f"ena_{yaml.safe_load(open(f'{ROOT}/configs/param_configs.yaml'))['fetch']['bioproject']}"
 FOOTER = "[SLURM-INFO] 2026-11-12 10:00:00 | elapsed 00:00:01 | max RSS 0.10 GB\n"
 SHEET = "sample_id\tsrr\tcondition\tcontrol\tfastq_path\nA\tSRR1000001\tmock\t1\t\nB\tSRR1000002\ttreated\t0\t\nC\t\ttreated\t0\t{fq}\n"
 FAKES = {
@@ -71,10 +72,10 @@ def test_plan_counts(e):
 
 def test_plan_deps(e):
     k = keys(e)
-    assert k["download_SRR1000001"]["deps"] == ["ena"] and k["filter_A"]["deps"] == ["download_SRR1000001"] and k["filter_C"]["deps"] == []
+    assert k["download_SRR1000001"]["deps"] == [ENA] and k["filter_A"]["deps"] == ["download_SRR1000001"] and k["filter_C"]["deps"] == []
     assert k["alpine_B"]["deps"] == ["filter_B", "refs"]
     assert set(k["lungo_B"]["deps"]) == {"filter_B", "filter_A", "refs"}
-    assert set(k["summary"]["deps"]) == set(k) - {"summary", "ena"} - {x for x in k if x.startswith("download")}
+    assert set(k["summary"]["deps"]) == set(k) - {"summary", ENA} - {x for x in k if x.startswith("download")}
 
 def test_plan_paths_and_resources(e):
     for j in keys(e).values():
@@ -130,14 +131,14 @@ def test_log_without_footer_reruns(e):
 def test_shared_jobs_done_by_output_alone(e):
     e.fake_done()
     k = keys(e)
-    assert not os.path.exists(k["ena"]["log"]) and not os.path.exists(k["download_SRR1000001"]["log"])
-    assert e.states()["ena"] == "done" and e.states()["download_SRR1000001"] == "done"
+    assert not os.path.exists(k[ENA]["log"]) and not os.path.exists(k["download_SRR1000001"]["log"])
+    assert e.states()[ENA] == "done" and e.states()["download_SRR1000001"] == "done"
 
 def test_ena_rerun_does_not_resubmit_existing_downloads(e):
-    e.fake_done(); os.remove(keys(e)["ena"]["outputs"][0])
-    assert e.rerun() == {"ena"}
+    e.fake_done(); os.remove(keys(e)[ENA]["outputs"][0])
+    assert e.rerun() == {ENA}
     pl.submit(N, e.r)
-    assert [c["key"] for c in e.calls()] == ["ena"]
+    assert [c["key"] for c in e.calls()] == [ENA]
 
 def test_newer_upstream_output_reruns_downstream(e):
     e.fake_done(); os.utime(keys(e)["refs"]["outputs"][-1], (1.8e9, 1.8e9))
@@ -200,7 +201,7 @@ def test_finished_own_job_allows_relaunch(e):
     assert len(pl.submit(N, e.r)) == 14
 
 def test_other_analysis_live_shared_job_refused(e):
-    write_jobs(e, "other", "ena", "77"); e.put("squeue.txt", "77|PENDING\n")
+    write_jobs(e, "other", ENA, "77"); e.put("squeue.txt", "77|PENDING\n")
     with pytest.raises(RuntimeError, match="another analysis"): pl.submit(N, e.r)
     assert e.calls() == []
 
@@ -270,7 +271,7 @@ def cli(e, *a):
 def test_cli_dry_run(e):
     r = cli(e, N, "--dry-run")
     assert r.returncode == 0, r.stderr
-    assert "ena: would-run" in r.stdout and "14 jobs: 0 done, 0 submitted, 14 would run" in r.stdout and "| elapsed" in r.stdout
+    assert f"{ENA}: would-run" in r.stdout and "14 jobs: 0 done, 0 submitted, 14 would run" in r.stdout and "| elapsed" in r.stdout
 
 def test_cli_refusal_exits_nonzero(e):
     for name in ("../x", "nope"):

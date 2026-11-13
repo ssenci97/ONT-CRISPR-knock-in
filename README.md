@@ -129,7 +129,7 @@ Each analysis freezes its own copy of these values in `results/<analysis>/inputs
 
 ### Samples
 
-The page starts empty. **Example 1: Nitulescu 2025** fills in five public ONT runs of a published knock-in experiment (BioProject PRJNA1257358) and **Example 2: ARCUS 2025** three runs of a second one (BioProject PRJNA1183863), both credited under [Credits and citation](#credits-and-citation); saving an example also switches `configs/param_configs.yaml` to its parameters (see [Example datasets](#example-datasets)). **Clear** empties the cards. **Hide info** collapses the definitions above. Each card keeps the fields the pipeline needs; the sequencing and wet-lab fields sit at the end under **Optional details**, collapsed by default.
+The page starts empty. The **Example** dropdown picks an example by name: **nitulescu** fills in five public ONT runs of a published knock-in experiment (BioProject PRJNA1257358) and **arcus** three runs of a second one (BioProject PRJNA1183863), both credited under [Credits and citation](#credits-and-citation); saving an example also switches `configs/param_configs.yaml` to its parameters. **All examples** shows every example's samples read-only: on the Run tab, **Run on SLURM** then launches one analysis per example, `<name>_nitulescu` and `<name>_arcus`, each frozen with its own samples and parameters straight from `configs/examples/` (see [Example datasets](#example-datasets)). **Clear** empties the cards. **Hide info** collapses the definitions above. Each card keeps the fields the pipeline needs; the sequencing and wet-lab fields sit at the end under **Optional details**, collapsed by default.
 
 ![samples: info panel](docs/img/gui_samples_info.png)
 
@@ -296,10 +296,12 @@ The KI % matrix shows only `ki_pct`; the Results tab charts the groups per sampl
 
 Two published experiments are wired up, each in its own folder under `configs/examples/`
 (`example_nitulescu/`, `example_arcus/`) with a `samples.tsv`, a `param_configs.yaml` and a `meta.yaml`
-(button label, title, credit). Example 1 is the default: `configs/param_configs.yaml` is already set up for it.
-In the console, the **Example 1** / **Example 2** buttons fill the sample cards; **Save samples** then also copies
+(title, credit). The dropdown name is the folder name without `example_`. Example 1 is the default: `configs/param_configs.yaml` is already set up for it.
+In the console, picking one name in the **Example** dropdown fills the sample cards; **Save samples** then also copies
 that example's `param_configs.yaml` over `configs/param_configs.yaml` (the previous one is kept as
-`configs/param_configs.yaml.bak`). From the shell, copy the two files over the defaults instead.
+`configs/param_configs.yaml.bak`). Picking **All examples** leaves `configs/` untouched: **Run on SLURM** freezes each
+example folder as-is into its own analysis, `<name>_nitulescu` and `<name>_arcus`, and submits both at once
+(`analysis.json` records the folder under `source`). From the shell, copy the two files over the defaults instead.
 
 | | Example 1 (default) | Example 2 |
 |---|---|---|

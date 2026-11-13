@@ -229,12 +229,11 @@ async function init() {
   state.schema = await (await fetch("/api/schema")).json();
   state.params = await (await fetch("/api/params")).json();
   state.examples = (await (await fetch("/api/examples")).json()).examples || [];
-  for (const e of state.examples) {
-    const b = el("button", "pill purple"); b.type = "button"; b.title = e.title; b.dataset.example = e.name;
-    b.append(icon("sparkles"), document.createTextNode(e.button));
-    b.addEventListener("click", () => pickExample(e));
-    $("#examples").append(b);
-  }
+  const sel = $("#example");
+  sel.append(new Option("Example: —", ""));
+  for (const e of state.examples) sel.append(new Option(`${e.short} — ${e.title}`, e.name));
+  if (state.examples.length > 1) sel.append(new Option(`All examples (${state.examples.map((e) => e.short).join(", ")})`, "all"));
+  sel.addEventListener("change", () => pickExample(sel.value));
   renderInfo();
   toggleInfo(store.get("kv_info") !== "0");
   fill([]);
@@ -249,10 +248,35 @@ async function loadSaved() {
 
 function setExample(name) {
   state.example = name;
-  for (const b of document.querySelectorAll("#examples button")) b.classList.toggle("on", b.dataset.example === name);
+  $("#example").value = name;
+  const all = name === "all";
+  for (const id of ["#submit", "#add"]) $(id).disabled = all;
+  renderRunNote();
 }
 
-function pickExample(ex) {
+const allNames = (base) => state.examples.map((e) => `${base || "<name>"}_${e.short}`);
+
+function renderRunNote() {
+  const n = $("#run-note");
+  n.hidden = state.example !== "all";
+  n.textContent = n.hidden ? "" : `All examples selected: Run on SLURM launches ${allNames(currentAnalysis()).join(", ")}, one analysis per example with its own parameters.`;
+}
+
+function lock(node, tag) {
+  for (const e of node.querySelectorAll("input, select, textarea, button")) e.disabled = true;
+  $(".title", node).after(el("span", "badge tag", tag));
+}
+
+function pickExample(name) {
+  if (!name) return clearSamples();
+  if (name === "all") {
+    $("#samples").textContent = "";
+    state.rows = [];
+    for (const e of state.examples) for (const x of e.samples) lock(add({ ...x }), e.short);
+    setExample("all");
+    return status(`All examples: ${state.examples.map((e) => e.short).join(", ")}. Each one runs as its own analysis with its own parameters, read as-is from configs/examples/<folder>/, so these cards are read-only and nothing is saved here. Go to Run, type a base name and click Run on SLURM: it launches ${allNames("").join(", ")}.\n\n${state.examples.map((e) => e.credit).join("\n\n")}`, false);
+  }
+  const ex = state.examples.find((e) => e.name === name);
   fill(ex.samples.map((x) => ({ ...x })));
   setExample(ex.name);
   status(`${ex.credit}\n\nSave to use them: saving also replaces configs/param_configs.yaml with this example's (the previous one is kept as configs/param_configs.yaml.bak). Clear empties the cards.`, false);
@@ -373,10 +397,15 @@ async function refreshStatus() {
 async function launch() {
   const analysis = currentAnalysis(), rs = $("#run-state");
   if (!analysis) { rs.textContent = ""; rs.append(badge("failed", "name required")); return; }
-  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis }) });
+  const examples = state.example === "all" ? state.examples.map((e) => e.name) : [];
+  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis, examples }) });
   const body = await res.json();
   if (!res.ok) { rs.textContent = ""; rs.append(badge("failed", "not started"), el("span", null, (body.errors || ["failed"]).join("; "))); return; }
-  refreshStatus();
+  if (!body.started) return refreshStatus();
+  $("#analysis").value = body.analysis;
+  await refreshStatus();
+  rs.append(el("span", "muted", `launched ${body.started.map((x) => x.analysis).join(", ")} — switch with Existing`));
+  for (const [n, errs] of Object.entries(body.errors || {})) rs.append(badge("failed", `${n} not started`), el("span", null, errs.join("; ")));
 }
 
 const UNCL = "Unclassified";
@@ -694,11 +723,12 @@ $("#add").addEventListener("click", () => add());
 $("#reload").addEventListener("click", loadSaved);
 $("#submit").addEventListener("click", submit);
 $("#run-sbatch").addEventListener("click", launch);
+$("#analysis").addEventListener("input", renderRunNote);
 $("#stop").addEventListener("click", async () => {
   await fetch("/api/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis: currentAnalysis() }) });
   refreshStatus();
 });
-$("#pick").addEventListener("change", () => { if ($("#pick").value) { $("#analysis").value = $("#pick").value; refreshStatus(); } });
+$("#pick").addEventListener("change", () => { if ($("#pick").value) { $("#analysis").value = $("#pick").value; renderRunNote(); refreshStatus(); } });
 $("#pick-results").addEventListener("change", refreshResults);
 $("#refresh-results").addEventListener("click", refreshResults);
 setInterval(() => { if ($("#auto").checked && !$("#tab-run").hidden) refreshStatus(); }, 5000);

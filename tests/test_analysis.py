@@ -31,6 +31,15 @@ def test_second_analysis_is_separate(tmp_path):
     a.create("run1", r); a.create("run2", r)
     assert sorted(os.listdir(f"{r}/results")) == ["run1", "run2"]
 
+def test_example_source_ignores_saved_sample_json(tmp_path):
+    r = repo(tmp_path, SHEET, {"A": {"operator": "sam", "fastq_path": "/nope.fastq"}})
+    src = tmp_path / "ex"; src.mkdir()
+    (src / "samples.tsv").write_text(SHEET.replace("SRR2", "SRR7")); (src / "param_configs.yaml").write_text("fetch:\n  bioproject: X\n")
+    d, new, errs = a.create("ex1", r, str(src))
+    assert new and errs == []
+    assert "SRR7" in open(f"{d}/inputs/samples.tsv").read() and "bioproject: X" in open(f"{d}/inputs/params.yaml").read()
+    assert os.listdir(f"{d}/inputs/samples") == [] and json.load(open(f"{d}/inputs/analysis.json"))["source"] == "ex"
+
 def test_bad_sheet_is_refused(tmp_path):
     r = repo(tmp_path, "sample_id\tsrr\tcondition\tcontrol\nA\tSRR1\tmock\t0\n")
     d, new, errs = a.create("run1", r)

@@ -60,20 +60,24 @@ def analysis_dir(name, root=ROOT):
     if not NAME_RE.match(name or ""): raise ValueError(f"analysis name {name!r}: use letters, digits, _ . - (max 64)")
     return f"{root}/results/{name}"
 
-def create(name, root=ROOT):
-    """Freeze configs into results/<name>/inputs once; an existing analysis is resumed with its frozen inputs."""
+def create(name, root=ROOT, src=None):
+    """Freeze configs (or an example folder src with samples.tsv + param_configs.yaml) into results/<name>/inputs once; an existing analysis is resumed with its frozen inputs."""
     a = analysis_dir(name, root); inp = f"{a}/inputs"
     if os.path.exists(f"{inp}/samples.tsv"): return a, False, []
-    rows = read_sheet(f"{root}/configs/samples.tsv")
-    errs = validate([{**submitted(root, r["sample_id"]), **r} for r in rows])
+    base = src or f"{root}/configs"
+    meta = (lambda sid: {}) if src else (lambda sid: submitted(root, sid))
+    rows = read_sheet(f"{base}/samples.tsv")
+    errs = validate([{**meta(r["sample_id"]), **r} for r in rows])
     if errs: return a, False, errs
     tmp = f"{inp}.tmp"; shutil.rmtree(tmp, ignore_errors=True); os.makedirs(f"{tmp}/samples")
-    shutil.copy(f"{root}/configs/samples.tsv", f"{tmp}/samples.tsv"); shutil.copy(f"{root}/configs/param_configs.yaml", f"{tmp}/params.yaml")
-    for r in rows:
+    shutil.copy(f"{base}/samples.tsv", f"{tmp}/samples.tsv"); shutil.copy(f"{base}/param_configs.yaml", f"{tmp}/params.yaml")
+    for r in rows if not src else []:
         if os.path.exists(f"{root}/configs/samples/{r['sample_id']}.json"): shutil.copy(f"{root}/configs/samples/{r['sample_id']}.json", f"{tmp}/samples/")
     sums = {os.path.relpath(f"{d}/{f}", tmp): sha256(f"{d}/{f}") for d, _, fs in os.walk(tmp) for f in fs}
-    fq = {p: dict(size=os.stat(p).st_size, mtime=os.stat(p).st_mtime) for p in sorted({submitted(root, r["sample_id"]).get("fastq_path") if not r.get("fastq_path") else r["fastq_path"] for r in rows} - {None, ""}) if os.path.isfile(p)}
-    json.dump(dict(analysis=name, created_at=f"{datetime.datetime.now():%F %T}", samples=[r["sample_id"] for r in rows], checksums=dict(sorted(sums.items())), fastq=fq), open(f"{tmp}/analysis.json", "w"), indent=2)
+    fq = {p: dict(size=os.stat(p).st_size, mtime=os.stat(p).st_mtime) for p in sorted({meta(r["sample_id"]).get("fastq_path") if not r.get("fastq_path") else r["fastq_path"] for r in rows} - {None, ""}) if os.path.isfile(p)}
+    info = dict(analysis=name, created_at=f"{datetime.datetime.now():%F %T}", samples=[r["sample_id"] for r in rows], checksums=dict(sorted(sums.items())), fastq=fq)
+    if src: info["source"] = os.path.relpath(src, root)
+    json.dump(info, open(f"{tmp}/analysis.json", "w"), indent=2)
     os.replace(tmp, inp)
     return a, True, []
 
