@@ -10,7 +10,7 @@
 <title>all_tools</title>
 <polygon fill="white" stroke="transparent" points="-4,4 -4,-581 773,-581 773,4 -4,4"/>
 <text text-anchor="middle" x="384.5" y="-553.8" font-family="Helvetica,sans-Serif" font-size="24.00">Whole analysis</text>
-<text text-anchor="middle" x="384.5" y="-527.8" font-family="Helvetica,sans-Serif" font-size="24.00">snakemake &#45;&#45;profile profiles/slurm &#45;&#45;config analysis=&lt;name&gt;</text>
+<text text-anchor="middle" x="384.5" y="-527.8" font-family="Helvetica,sans-Serif" font-size="24.00">python3 src/pipeline.py &lt;name&gt;</text>
 <text text-anchor="middle" x="384.5" y="-501.8" font-family="Helvetica,sans-Serif" font-size="24.00">same inputs, same files, two readers</text>
 <text text-anchor="middle" x="384.5" y="-475.8" font-family="Helvetica,sans-Serif" font-size="24.00"> </text>
 <g id="clust1" class="cluster">

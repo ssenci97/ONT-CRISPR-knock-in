@@ -100,12 +100,13 @@ pre.cmd { background: var(--fill); border-radius: 8px; padding: 12px 14px; font-
 .badge.done::before { content: "\2713"; }
 .badge.failed::before { content: "\2715"; }
 .badge.running::before { content: "\25B6"; }
+.badge.cancelled::before { content: "\2715"; }
 .badge.stopped::before { content: "\25A0"; }
 .badge.waiting::before, .badge.idle::before { content: "\25CB"; }
 .badge.running { background: #dcebfc; color: #00508f; }
 .badge.done { background: #dbf3e1; color: #19642c; }
 .badge.failed { background: #fde2d7; color: #9c3a00; }
-.badge.stopped { background: #f6ecd2; color: #7a5a00; }
+.badge.cancelled, .badge.stopped { background: #f6ecd2; color: #7a5a00; }
 .badge.waiting, .badge.idle { background: var(--fill); color: var(--muted); }
 #run-state { margin-top: 4px; font-size: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 

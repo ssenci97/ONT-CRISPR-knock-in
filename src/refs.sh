@@ -12,8 +12,8 @@ PY
 )"
 ###################################### download (cache shared by all analyses)
 mkdir -p "$(dirname "$genomic_fasta")" data/raw_refs/supp
-[ -s "$genomic_fasta" ] || { kv_log "hg38 $region"; curl -sf "https://rest.ensembl.org/sequence/region/human/$region?content-type=text/x-fasta" > "$genomic_fasta.tmp"; mv "$genomic_fasta.tmp" "$genomic_fasta"; }
-[ -s "$templates_xlsx" ] || { kv_log "supplements $pmc"; curl -sfL -o data/raw_refs/supp/supp.zip "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/supplementaryFiles"; unzip -o -q data/raw_refs/supp/supp.zip -d data/raw_refs/supp; }
+[ -s "$genomic_fasta" ] || { kv_log "hg38 $region"; curl -sSf "https://rest.ensembl.org/sequence/region/human/$region?content-type=text/x-fasta" > "$genomic_fasta.tmp"; mv "$genomic_fasta.tmp" "$genomic_fasta"; }
+[ -s "$templates_xlsx" ] || { kv_log "supplements $pmc"; curl -sSfL -o data/raw_refs/supp/supp.zip "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/supplementaryFiles"; unzip -o -q data/raw_refs/supp/supp.zip -d data/raw_refs/supp; }
 ###################################### pin
 pins=configs/refs.sha256; touch "$pins"
 for f in "$genomic_fasta" "$templates_xlsx"; do
@@ -23,5 +23,6 @@ for f in "$genomic_fasta" "$templates_xlsx"; do
   else kv_log "$f matches $pins"; fi
 done
 ###################################### build
+rm -f "$KV_OUT"/refs/{TRAC_WT.fa,TRAC_KI.fa,CAR_insert.fa,design.json} "$KV_OUT"/refs/alpine/{ref.fa,config.tsv}
 python3 src/build_refs.py --yaml-in --params "$PARAMS" --out-dir "$KV_OUT/refs"
 kv_footer

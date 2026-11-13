@@ -17,7 +17,7 @@ The console's info panel shows the same definitions, together with the current v
 
 ### Input data types
 
-- **FASTQ (local)** (gzipped FASTQ (`.fastq.gz`), one file per sample, absolute path on the cluster): The preferred source. Step `01_fetch` length-filters it with seqkit into `results/<analysis>/data/<sample_id>.fastq.gz`; the original file is never modified. A file outside `$HOME` and the repo needs `--bind <dir>` in `profiles/slurm/config.yaml`.
+- **FASTQ (local)** (gzipped FASTQ (`.fastq.gz`), one file per sample, absolute path on the cluster): The preferred source. Step `01_fetch` length-filters it with seqkit into `results/<analysis>/data/<sample_id>.fastq.gz`; the original file is never modified. A file outside `$HOME` and the repo needs `--bind <dir>` in `apptainer-args` (local FASTQ directories are bound automatically).
 - **SRA run accession** (`SRR` / `ERR` / `DRR` followed by digits): The alternative source, for public data. Step `01_fetch` checks the read count against ENA, downloads the `.sra` file, converts it with `fasterq-dump` and keeps it in the shared cache `data/raw/<run>.fastq.gz`, so later analyses reuse it.
 - **sample_id** (letters, digits, underscore): The row key. It names every file, log and SLURM job of the sample, so it must be unique within the sheet.
 - **condition** (free text): A human-readable label for the treatment, e.g. `rnp_dsDNA_donor`. Carried into `summary.tsv` and the KI % matrix; not interpreted by the tools.
@@ -35,13 +35,13 @@ Each variable is listed with what it controls, the step that reads it, and the o
   - step: `03_alpine`, `05_summary`
   - original argument: ALPINE `truncated_cutoff` in job.yaml; for CRISPRLungo it is applied afterwards by `summarize.py` on the merged insert blocks
 - `fetch.bioproject`: NCBI/ENA BioProject that the SRA runs belong to. Only used to download the run table from ENA, so that every downloaded run can be checked against its expected read count. Not needed when all samples are local FASTQ files.
-  - step: `01_fetch` (rules ena, download)
+  - step: `01_fetch` (jobs ena, download)
   - original argument: ENA filereport `accession=`
 - `fetch.min_len`: Shortest read kept, in bp. Reads below this length are dropped before any tool sees them (primer dimers, broken reads). Nothing is subsampled: all passing reads are used.
-  - step: `01_fetch` (rule filter)
+  - step: `01_fetch` (job filter)
   - original argument: `seqkit seq -m`
 - `fetch.max_len`: Longest read kept, in bp. Removes concatemers and chimeric reads much longer than the knock-in amplicon.
-  - step: `01_fetch` (rule filter)
+  - step: `01_fetch` (job filter)
   - original argument: `seqkit seq -M`
 - `refs.region`: hg38 genomic window (chromosome:start..end:strand) that contains the amplicon. Downloaded once from Ensembl and pinned by sha256.
   - step: `02_refs`
@@ -85,7 +85,7 @@ Each variable is listed with what it controls, the step that reads it, and the o
 - `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise.
   - step: `04_lungo`
   - original argument: CRISPRlungo `--window`
-- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each rule, set in the Snakefile. `get_best_node` uses them to choose a partition and node with enough free resources when each job is submitted.
+- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job, set in `src/pipeline.py`. `get_best_node` uses them to choose a partition and node with enough free resources when each job is submitted.
   - step: `every step`
   - original argument: `sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin
 
@@ -113,7 +113,6 @@ Each analysis freezes its own copy of these values in `results/<analysis>/inputs
 | Automatic | Done by |
 |---|---|
 | `module load singularity` | `build.sh` (line 4) and `gui_serve.py` |
-| snakemake env | `gui_serve.py` finds `kv_snakemake`, or else creates `.kv_env/` from `envs/snakemake.yml` |
 | node choice | `gui_serve.py` puts `src/sbatch_pick.sh` in front of `sbatch` |
 
 ## Console
@@ -143,13 +142,14 @@ The screenshot below shows an illustrative mid-run state.
 
 | Term | Definition |
 |---|---|
-| **Run on SLURM** | freezes inputs into `results/<name>/inputs/` and starts snakemake with `profiles/slurm`; there is no local mode |
-| overall bar | snakemake's own `N of M steps` count |
-| step rows | done / failed / running per step, each labelled in words and marked ✓ ✕ ▶ rather than by colour alone. A job counts as done once its output exists and its log ends with the footer. Failed jobs open with their log tail. |
+| **Run on SLURM** | runs `src/pipeline.py <name>` on the login node: freezes inputs into `results/<name>/inputs/`, submits the jobs with `sbatch --dependency` and exits; jobs run unattended, there is no local mode |
+| overall bar | finished jobs out of planned jobs |
+| step rows | waiting / running / done / failed / cancelled / stopped per step, from files on disk plus `squeue`/`sacct`, each labelled in words and marked ✓ ✕ ▶ rather than by colour alone. A job counts as done once its output exists and its log ends with the footer. Failed jobs open with their log tail. |
 | SLURM queue | only this run's jobs (`squeue -n <run id>`), with partition and node |
 | node choice | `results/<name>/logs/node_pick.log`, one line per submitted job |
-| header line | `image · snakemake · singularity · sbatch · get_best_node`; a run is refused if `sbatch` or a tool is missing |
-| resume | the same name again keeps finished outputs and recomputes the missing ones |
+| header line | `image · singularity · sbatch · get_best_node`; a run is refused if `sbatch` or singularity is missing |
+| resume | the same name again: done jobs are kept, the rest (and everything downstream) is resubmitted |
+| stop | `pipeline.py <name> --stop` (`scancel` of this run's jobs) |
 
 ### Results
 
@@ -175,36 +175,51 @@ The screenshot below shows an illustrative mid-run state.
 
 ## Node placement (`get_best_node`)
 
-For each job snakemake submits, `src/sbatch_pick.sh`:
+For each job `pipeline.py` submits, `src/sbatch_pick.sh`:
 1. reads `--cpus-per-task`, `--mem` and `-t`;
 2. keeps the partitions whose time limit covers the job, never DGX or GPU;
 3. asks `get_best_node` (`src/best_node.sh`) for the idle or mixed node with the most free CPUs and memory;
 4. submits with `-p <partition> -w <node>`.
 
-If no node fits, the profile partition (GENOA) is kept. `NODE_PICK=0` turns this off.
+If no node fits, the default partition (GENOA) is kept. `NODE_PICK=0` turns this off.
 
 ## Pipeline
 
 ![all tools](docs/img/03_all_tools.svg)
 
-| Step | Rule | Does | Writes (in `results/<name>/`) |
+| Step | Job | Does | Writes (in `results/<name>/`) |
 |---|---|---|---|
 | `01_fetch` | `ena` · `download` · `filter` | SRA reads (cached) or local FASTQ, length filter | `data/<sample>.fastq.gz`, `data/stats/` |
 | `02_refs` | `refs` | WT / KI references, ALPINE config | `refs/` |
 | `03_alpine` | `alpine` | ALPINE, all reads, one job per sample | `ALPINE/<sample>/` |
 | `04_lungo` | `lungo` | CRISPRLungo, all reads, one job per sample | `CRISPRLungo/<sample>/` |
 | `05_summary` | `summary` | KI % per tool × sample | `summary.tsv`, `summary_matrix.tsv` |
-| every rule | — | log, benchmark, provenance via `src/sample_meta.py` | `logs/<step>/`, `meta/<sample_id>.json` |
+| every job | — | log, provenance via `src/sample_meta.py` | `logs/<step>/`, `meta/<sample_id>.json` |
 
 ![single tool](docs/img/02_single_tool.svg)
 
 Command-line equivalent of the console:
 
 ```bash
-python3 src/analysis.py <name>                                   # freeze inputs
-snakemake --profile profiles/slurm --config analysis=<name>      # run
-cat results/<name>/summary_matrix.tsv                            # KI % per tool x sample
+python3 src/analysis.py <name>                  # freeze inputs
+python3 src/pipeline.py <name> --dry-run        # show what would be submitted
+python3 src/pipeline.py <name>                  # submit; run again to resume
+python3 src/pipeline.py <name> --stop           # scancel this analysis' jobs
+cat results/<name>/summary_matrix.tsv           # KI % per tool x sample
 ```
+
+`pipeline.py` plans the jobs (`01_fetch`: `ena`, `download` per SRA run, `filter` per sample; `02_refs`; `03_alpine` and `04_lungo` per sample; `05_summary`) and submits them with `sbatch --dependency=afterok:... --kill-on-invalid-dep=yes`, each through `src/kv_job.sh`, which runs the step inside the image and then checks the job's outputs (exist, non-empty, `gzip -t` for `.gz`); a job that fails the check fails, so its dependents never start. Job ids go to `results/<name>/jobs.tsv`.
+
+| Resume and safety | Definition |
+|---|---|
+| done rule | every output exists and is non-empty, the log ends with the `kv_footer` line (not required for the shared `data/raw`, `data/meta` cache), and no output is older than an output of a job it depends on |
+| resume | run the same command again: only jobs not done, and everything downstream, are resubmitted |
+| frozen inputs | sha256 of `results/<name>/inputs/` kept in `inputs/analysis.json` and re-verified every launch; edited inputs are refused (create a new analysis); local FASTQ size + mtime are re-verified too |
+| pre-flight | every input of every job to run must exist or be produced in this launch, else nothing is submitted |
+| paths | outputs and logs must resolve inside `results/<name>/`, `data/raw` or `data/meta` |
+| one launch | lock `results/<name>/.lock`; refused while the analysis has live SLURM jobs, or another analysis has a live job writing the same shared download |
+| environment | `SLURM_*`/`SBATCH_*` are scrubbed, so launching from an `salloc` shell is safe |
+| timing | `sacct -j <id> -o JobID,Elapsed,MaxRSS` |
 
 ## Metrics
 
@@ -212,7 +227,7 @@ cat results/<name>/summary_matrix.tsv                            # KI % per tool
 |---|---|
 | ALPINE KI | `HDR-<name>` class: insert ≥ `ki_min_insert_frac` **and** both homology arms aligned |
 | CRISPRLungo KI | integration blocks matching the insert, **merged**, cover ≥ `ki_min_insert_frac` of the insert |
-| `metric` column | the rule used for each row of `summary.tsv` |
+| `metric` column | the definition used for each row of `summary.tsv` |
 | denominator | length-passing reads (`reads_used`), not all reads |
 | control caveat | the CRISPRLungo control is ≈ 0 by construction; use `NoDonor` as its negative |
 | ALPINE caveat | under-reports on ONT; see [docs/manuals/ALPINE.md](docs/manuals/ALPINE.md) |
@@ -243,7 +258,7 @@ Only `ki_pct` is shown in the KI % matrix; the other columns live in `summary.ts
 | `KV_OWNER` | GHCR namespace (default: owner of `origin`) |
 | `KV_GITHUB_TOKEN` | PAT with `write:packages`, push only |
 | `KV_ENGINE` | `docker` (default) or `podman` |
-| `KV_SIF` | image snakemake uses (default: the `.sif`, else the pinned digest) |
+| `KV_SIF` | image the jobs run in (default: the `.sif`, else the pinned digest) |
 | `--cleanenv` | host environment does not leak into jobs |
 | `--bind` | add to `apptainer-args` for data outside the repo (symlink targets too) |
 
@@ -269,4 +284,4 @@ Only `ki_pct` is shown in the KI % matrix; the other columns live in `summary.ts
 |---|---|
 | tests | `python3 -m pytest -q tests` (no cluster, no container) |
 | diagrams | edit `docs/diagrams/*.dot` → `bash src/diagrams.sh` |
-| gitignored | `tools/ data/ results/ .snakemake/ .singularity/ .kv_bin/ .kv_env/` |
+| gitignored | `tools/ data/ results/ .singularity/ .kv_bin/ .kv_env/` |

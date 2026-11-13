@@ -17,7 +17,7 @@ digraph containers {
   subgraph cluster_hpc {
     label="SLURM HPC cluster: no root, no docker"; fontname="Helvetica"; fontsize=19; color="#5a4a8a"; style=dashed;
     sif [label="containers/ont-knockin-val.sif", fillcolor="#ece8f7"];
-    run [label="snakemake --profile profiles/slurm\nevery rule runs inside the .sif", fillcolor="#ece8f7"];
+    run [label="python3 src/pipeline.py <name>\nevery job runs inside the .sif (kv_job.sh)", fillcolor="#ece8f7"];
   }
 
   dfile -> img [label=" build.sh build"];

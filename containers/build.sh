@@ -99,7 +99,7 @@ pull() {
   "$app" pull --force "$KV_ROOT/$sif" "docker://$ref"
   [ -s "$KV_ROOT/$sif" ] || { log "pull reported success but $sif is missing or empty"; exit 1; }
   log "ok: $(du -h "$KV_ROOT/$sif" | cut -f1) at $KV_ROOT/$sif"
-  log "now start the console (python3 src/gui_serve.py) or run: snakemake --profile profiles/slurm"
+  log "now start the console (python3 src/gui_serve.py) or run: python3 src/pipeline.py <analysis>"
 }
 orfeo() {
   local ref="$image"
@@ -111,7 +111,7 @@ orfeo() {
   export SINGULARITY_CACHEDIR=\$PWD/.singularity APPTAINER_CACHEDIR=\$PWD/.singularity
   singularity pull --force $sif docker://$ref
 
-  snakemake --profile profiles/slurm   # or start the console: python3 src/gui_serve.py
+  python3 src/pipeline.py <analysis>   # or start the console: python3 src/gui_serve.py
 EOS
 }
 ###################################### dispatch

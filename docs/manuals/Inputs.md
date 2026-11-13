@@ -4,18 +4,18 @@ One name per concept, identical as yaml key, bash variable and argparse flag. SL
 
 | Name | Meaning | Source / used by |
 |---|---|---|
-| `analysis` | the run's name; everything it produces lives in `results/<analysis>/` | `--config analysis=<name>`, every rule |
+| `analysis` | the run's name; everything it produces lives in `results/<analysis>/` | `pipeline.py <name>`, every job |
 | `sample_id` | row key of the frozen `results/<analysis>/inputs/samples.tsv` | `filter` (srr), `lungo` (control), `summary` (condition); one job per sample |
 | `fastq_path` | optional local FASTQ, from `results/<analysis>/inputs/samples/<sample_id>.json` | `filter`: used instead of downloading the SRA run |
 | `ki_min_insert_frac` | `shared:` section of the frozen `params.yaml` | `alpine` (`truncated_cutoff`), `summary` (CRISPRLungo insert span) |
 | `fastq` | `results/<analysis>/data/<sample_id>.fastq.gz` (length-filtered) | ALPINE `fastqfile`, CRISPRlungo positional |
 | `wt_fasta` · `ki_fasta` · `insert_fasta` | `results/<analysis>/refs/TRAC_WT.fa` · `TRAC_KI.fa` · `CAR_insert.fa` | CRISPRlungo (reference, `--induced_sequence_path`, `--integration_file`) |
 | `guide`, `primer_f`, `primer_r` | read from `results/<analysis>/refs/design.json` | `alpine`, `lungo` |
-| `threads`, `mem_mb` | each rule's `threads:` and `resources:`, passed by snakemake | every tool |
-| `KV_OUT` | `results/<analysis>`, exported by the Snakefile; every script writes only under it | all |
+| `threads`, `mem_mb` | job resources (`RES` in `src/pipeline.py`), passed as `sbatch` options | every tool |
+| `KV_OUT` | `results/<analysis>`, exported by `src/kv_job.sh`; every script writes only under it | all |
 | `lungo.cleavage_pos`, `lungo.window` | CRISPRlungo `--cleavage_pos`, `--window` | `lungo` |
 | `alpine.primer_check_length`, `alpine.data_type` | ALPINE job params | `alpine` |
-| `KV_SIF` | override the image snakemake runs every rule in (default: `containers/ont-knockin-val.sif`, else the pinned GHCR digest) | `Snakefile` |
+| `KV_SIF` | override the image every job runs in (default: `containers/ont-knockin-val.sif`, else the pinned GHCR digest) | `src/kv_job.sh` |
 
 Data flow, all inside `results/<analysis>/` except the shared `data/raw/` download cache:
 `inputs/` (frozen) -> `data/<sample_id>.fastq.gz` + `data/stats/` -> `refs/*` -> `ALPINE/`, `CRISPRLungo/` -> `summary*.tsv`.

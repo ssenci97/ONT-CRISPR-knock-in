@@ -17,7 +17,7 @@ A CWL v1.2 workflow:
 6. **`group_output`** collects the files.
 
 ## Running it here
-`src/alpine.sh`, the `alpine` rule of the `Snakefile`. It writes the CWL job file itself and runs cwltool.
+`src/alpine.sh`, the `alpine` job of `src/pipeline.py`. It writes the CWL job file itself and runs cwltool.
 
 The CWL needs private images (`aavlr_filter:1.6`, `aavlr_classify:1.6.0`, …) that are on no registry, and no build script ships with the repo. The wrapper therefore copies `CWL/`, repoints `/opt/<script>.py` at `tools/ALPINE/DockerFile/<step>/`, sets `coresMin` to `threads` and `ramMin` to `mem_mb`, deletes the `DockerRequirement` blocks, exports `PATCHER_MINIMAP2_PATH`, and runs `cwltool --no-container --preserve-entire-environment`.
 

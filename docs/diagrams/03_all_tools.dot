@@ -1,6 +1,6 @@
 digraph all_tools {
   graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.55,
-         label="Whole analysis\nsnakemake --profile profiles/slurm --config analysis=<name>\nsame inputs, same files, two readers\n "];
+         label="Whole analysis\npython3 src/pipeline.py <name>\nsame inputs, same files, two readers\n "];
   node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
   edge [color="#48484a", arrowsize=1.0, penwidth=1.4, fontname="Helvetica", fontsize=16];
 

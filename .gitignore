@@ -8,4 +8,3 @@ __pycache__/
 .singularity/
 .kv_bin/
 .kv_env/
-.snakemake/

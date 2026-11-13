@@ -1,6 +1,6 @@
 digraph single_tool {
   graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.5,
-         label="One rule, one sample\nsnakemake --profile profiles/slurm\n--config analysis=<name> <target file>\n "];
+         label="One job, one sample\npython3 src/pipeline.py <name>\n "];
   node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
   edge [color="#48484a", arrowsize=1.0, penwidth=1.4];
 
@@ -9,10 +9,10 @@ digraph single_tool {
     fastq  [label="data/<sample_id>.fastq.gz\nrefs/*.fa, refs/design.json", fillcolor="#dff2ea"];
     frozen [label="inputs/samples.tsv\ninputs/params.yaml", fillcolor="#fff1d6"];
   }
-  step [label="04_lungo (rule lungo)\none SLURM job, node from get_best_node", fillcolor="#ece8f7"];
+  step [label="04_lungo\none SLURM job via kv_job.sh, node from get_best_node", fillcolor="#ece8f7"];
   out  [label="results/<name>/CRISPRLungo/<sample_id>/", fillcolor="#f2f2f7"];
   meta [label="results/<name>/meta/<sample_id>.json\nstep record appended", fillcolor="#f2f2f7"];
-  note [shape=note, fillcolor="#fff1d6", label="Snakemake builds missing inputs first,\nand nothing else."];
+  note [shape=note, fillcolor="#fff1d6", label="pipeline.py submits only jobs not done,\nand what depends on them."];
 
   fastq -> step; frozen -> step;
   step -> out; step -> meta;

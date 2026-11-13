@@ -277,7 +277,7 @@ function tab(name) {
 
 function describeRuntime(rt) {
   const ok = (x) => (x ? "✓" : "✗");
-  return `${rt.sif ? rt.sif.split("/").pop() : "image pulled on first run"} · snakemake ${ok(rt.snakemake)} · singularity ${ok(rt.apptainer)} · sbatch ${ok(rt.sbatch)} · get_best_node ${rt.node_pick ? "on" : "off"}`;
+  return `${rt.sif ? rt.sif.split("/").pop() : "image pulled on first run"} · singularity ${ok(rt.apptainer)} · sbatch ${ok(rt.sbatch)} · get_best_node ${rt.node_pick ? "on" : "off"}`;
 }
 
 const currentAnalysis = () => $("#analysis").value.trim();
@@ -306,10 +306,10 @@ function renderSteps(steps) {
   if (!steps.length) { box.append(el("p", "muted item", "Pick or name an analysis.")); return; }
   for (const s of steps) {
     const d = el("details"), su = el("summary");
-    const st = s.failed ? "failed" : s.total && s.done === s.total ? "done" : s.running ? "running" : s.done ? "stopped" : "waiting";
+    const st = s.failed || s.cancelled ? "failed" : s.total && s.done === s.total ? "done" : s.running ? "running" : s.done ? "stopped" : "waiting";
     const pct = (n) => (s.total ? (100 * n) / s.total : 0);
     su.append(el("span", "step-name", s.step), badge(st, st === "stopped" ? "partial" : st),
-      bar([["ok", pct(s.done)], ["bad", pct(s.failed)], ["run", pct(s.running)]], `${s.done}/${s.total}${s.failed ? ` · ${s.failed} failed` : ""}`));
+      bar([["ok", pct(s.done)], ["bad", pct(s.failed + (s.cancelled || 0))], ["run", pct(s.running)]], `${s.done}/${s.total}${s.failed ? ` · ${s.failed} failed` : ""}${s.cancelled ? ` · ${s.cancelled} cancelled` : ""}`));
     su.lastChild.style.flex = "1"; su.lastChild.style.marginTop = "0";
     const jobs = el("div", "jobs");
     for (const j of s.jobs) {
@@ -319,7 +319,7 @@ function renderSteps(steps) {
       jobs.append(r);
     }
     d.append(su, jobs);
-    if (s.failed) { d.open = true; d.classList.add("has-failed"); }
+    if (s.failed || s.cancelled) { d.open = true; d.classList.add("has-failed"); }
     box.append(d);
   }
 }

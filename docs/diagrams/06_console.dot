@@ -12,8 +12,8 @@ digraph console {
     t2 [label="2. Run\nRun on SLURM, live progress", fillcolor="#ece8f7"];
     t3 [label="3. Results\nKI % matrix, metadata", fillcolor="#ece8f7"];
   }
-  sb [label="snakemake --profile profiles/slurm\nsbatch through get_best_node", fillcolor="#f2f2f7"];
-  sif [label="every rule runs inside\ncontainers/ont-knockin-val.sif", fillcolor="#dff2ea"];
+  sb [label="src/pipeline.py <name>\nsbatch --dependency via get_best_node", fillcolor="#f2f2f7"];
+  sif [label="every job runs inside\ncontainers/ont-knockin-val.sif", fillcolor="#dff2ea"];
   out [label="results/<name>/summary_matrix.tsv\nresults/<name>/meta/<id>.json", fillcolor="#1f5f4f", fontcolor="white", penwidth=0];
 
   build -> serve -> t1; t1 -> t2 -> t3;

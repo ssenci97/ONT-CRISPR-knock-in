@@ -17,20 +17,18 @@
 
 | Where | Needs |
 |---|---|
-| cluster | `snakemake` ≥ 8 + SLURM plugin (`envs/snakemake.yml`), `singularity` (`module load singularity`), `curl` |
+| cluster | `python3` (PyYAML optional), `sbatch`, `singularity` (`module load singularity`), `curl` |
 | workstation (build) | `docker` or `podman` |
 | disk | ~15 GB data/results + ~5 GB image |
-| resources | `profiles/slurm/config.yaml`: GENOA; `alpine`/`lungo` 32 CPU · 128 GB · 24 h; `download`/`filter` 16 CPU · 32 GB |
+| resources | `RES` in `src/pipeline.py`: GENOA; `alpine`/`lungo` 32 CPU · 128 GB · 24 h; `download`/`filter` 16 CPU · 32 GB |
 
 ## 3. Layout
 
 | Path | Holds |
 |---|---|
-| `Snakefile` | rules `ena download filter refs alpine lungo summary` |
-| `profiles/` | `slurm/` |
 | `configs/` | `samples.tsv`, `samples/<id>.json`, `sample_schema.json`, `tools.tsv`, `param_configs.yaml`, `refs.sha256` |
-| `envs/` | `kv.yml` (in image), `snakemake.yml` (host launcher) |
-| `src/` | `analysis.py`, `common.sh`, step scripts, `build_refs.py`, `summarize.py`, `sample_meta.py`, `gui_serve.py`, `diagrams.sh` |
+| `envs/` | `kv.yml` (in image) |
+| `src/` | `analysis.py`, `pipeline.py`, `kv_job.sh`, `common.sh`, step scripts (`ena download filter refs alpine lungo summary`), `build_refs.py`, `summarize.py`, `sample_meta.py`, `gui_serve.py`, `diagrams.sh` |
 | `gui/` | console: `submit.html/.css/.js` |
 | `tests/` | pytest, no cluster/container |
 | `containers/` | `Dockerfile`, `build.sh`, `pins.env`, `kv.lock.txt`, `images.env` |
@@ -39,12 +37,13 @@
 
 | `results/<analysis>/…` | Holds |
 |---|---|
-| `inputs/` | frozen `samples.tsv`, `samples/<id>.json`, `params.yaml`, `analysis.json` |
+| `inputs/` | frozen `samples.tsv`, `samples/<id>.json`, `params.yaml`, `analysis.json` (with sha256) |
+| `jobs.tsv`, `.lock` | SLURM job ids of the last launch; one-launch lock |
 | `data/` | filtered `<sample>.fastq.gz`, `stats/<sample>.tsv` |
 | `refs/` | `TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `design.json`, `alpine/` |
 | `ALPINE/<sample>/`, `CRISPRLungo/<sample>/` | tool outputs |
 | `meta/<sample_id>.json` | run provenance |
-| `logs/<step>/` | one log + benchmark TSV per job |
+| `logs/<step>/` | one log per job |
 | `summary.tsv`, `summary_matrix.tsv` | KI % results; `summary.tsv` also carries `partial_reads`/`partial_pct` (insert present but below `ki_min_insert_frac`) and the full per-class breakdown in `notes` |
 | `run.log`, `run_state.json` | console launch record |
 
@@ -52,13 +51,14 @@
 
 | Term | Definition |
 |---|---|
-| parameters | `configs/param_configs.yaml`, one section per rule + `shared:`; frozen per analysis |
-| SLURM | one job per rule per sample; no arrays; `jobs: 40` cap |
-| logs | start `[SLURM-INFO]`/`[PYTHON-INFO]`, end `date \| elapsed \| max RSS` |
+| parameters | `configs/param_configs.yaml`, one section per step + `shared:`; frozen per analysis |
+| SLURM | one job per step per sample; no arrays; chained with `--dependency=afterok` |
+| logs | start `[SLURM-INFO]`/`[PYTHON-INFO]`, end `date \| elapsed \| max RSS` (`kv_footer`) |
 | subsampling | none; `SEED=42` exported anyway |
 | control | first row of `samples.tsv` with `control=1` |
 | `ki_min_insert_frac` | `shared:`, 0.80; ALPINE `truncated_cutoff` + CRISPRLungo insert span |
 | container | mandatory; `KV_SIF` overrides image; no native mode |
+| driver | `src/pipeline.py` on the login node: plans, submits with dependencies, exits; done = outputs exist + log footer + not older than inputs; rerun resumes |
 | console | host only (needs `sbatch`); one run at a time; pid in `run_state.json` |
 | pins | `tools.tsv`, `pins.env`, `kv.lock.txt`, `refs.sha256`; full 40-char SHAs enforced |
 
@@ -67,7 +67,7 @@
 | Step | Command |
 |---|---|
 | image | `containers/build.sh pull` |
-| console (auto-loads singularity + snakemake env) | `python3 src/gui_serve.py` |
+| console (auto-loads singularity) | `python3 src/gui_serve.py` |
 | tests (optional, ~30 s) | `python3 -m pytest -q tests` |
 
 | Image detail | Definition |
@@ -138,13 +138,14 @@ Both predate the 2026-11-11 fixes (ALPINE `map-ont` patch, CRISPRLungo block uni
 
 | Symptom | Cause → fix |
 |---|---|
-| console: `snakemake: !! still missing` | no conda found → send `which conda` output |
 | browser: *Unable to connect* | tunnel not running on laptop |
-| `refusing to run natively` | no apptainer → use `--profile profiles/slurm` |
-| `refusing to run outside the container image` | script run by hand → go through snakemake |
+| `refusing to run natively` | no singularity → `module load singularity` |
+| `refusing to run outside the container image` | script run by hand → use `python3 src/pipeline.py <name>` |
 | `results/<name>/inputs/samples.tsv missing` | `python3 src/analysis.py <name>` first |
 | job cannot see a file | add `--bind /path` to `apptainer-args` (symlink targets too) |
-| directory locked | `snakemake --unlock --config analysis=<name>` |
+| refused: live SLURM jobs / lock held | wait, or `python3 src/pipeline.py <name> --stop` |
+| refused: inputs changed | frozen inputs were edited → create a new analysis |
+| job failed or half-done | run `python3 src/pipeline.py <name>` again; done jobs are skipped |
 | ALPINE `--no-container` refused | `DockerRequirement`; stripped by `src/alpine.sh` |
 | ALPINE hangs at `count_read` | `plt.show()`; `MPLBACKEND=Agg` |
 | ALPINE `group_output … got None` | cosmetic; success if table exists |
@@ -163,8 +164,8 @@ Both predate the 2026-11-11 fixes (ALPINE `map-ont` patch, CRISPRLungo block uni
 | 1. samples | console or `configs/samples.tsv`; local reads → `fastq_path` |
 | 2. design | `build_refs:` in `param_configs.yaml`: window, primers, template, guide, `cut_offset_from_guide_5p` (SpCas9 17, AsCas12a 18) |
 | 3. nuclease | CRISPRLungo `--cleavage_pos` = cut offset − 1; `--window` covers all intended mutations |
-| 4. refs only | `snakemake … results/<name>/refs/design.json`; check arms and insert length |
-| 5. run | `snakemake --profile profiles/slurm --config analysis=<name>` |
+| 4. dry run | `python3 src/pipeline.py <name> --dry-run`; after `02_refs`, check arms and insert length in `refs/design.json` |
+| 5. run | `python3 src/pipeline.py <name>`; rerun to resume |
 
 | Validation (before run) | Checks |
 |---|---|

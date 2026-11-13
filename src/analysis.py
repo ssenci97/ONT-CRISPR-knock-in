@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Create or resume an analysis: validate the sample sheet and freeze inputs into results/<analysis_name>/inputs."""
-import argparse, csv, datetime, json, os, re, resource, shutil, sys, time
+import argparse, csv, datetime, hashlib, json, os, re, resource, shutil, sys, time
 
 ###################################### constants
 T0 = time.time()
@@ -36,6 +36,12 @@ def validate(samples):
         errs.append("at least one sample must be marked as negative control (CRISPRLungo needs it)")
     return errs
 
+def sha256(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""): h.update(b)
+    return h.hexdigest()
+
 def analysis_dir(name, root=ROOT):
     if not NAME_RE.match(name or ""): raise ValueError(f"analysis name {name!r}: use letters, digits, _ . - (max 64)")
     return f"{root}/results/{name}"
@@ -51,7 +57,9 @@ def create(name, root=ROOT):
     shutil.copy(f"{root}/configs/samples.tsv", f"{tmp}/samples.tsv"); shutil.copy(f"{root}/configs/param_configs.yaml", f"{tmp}/params.yaml")
     for r in rows:
         if os.path.exists(f"{root}/configs/samples/{r['sample_id']}.json"): shutil.copy(f"{root}/configs/samples/{r['sample_id']}.json", f"{tmp}/samples/")
-    json.dump(dict(analysis=name, created_at=f"{datetime.datetime.now():%F %T}", samples=[r["sample_id"] for r in rows]), open(f"{tmp}/analysis.json", "w"), indent=2)
+    sums = {os.path.relpath(f"{d}/{f}", tmp): sha256(f"{d}/{f}") for d, _, fs in os.walk(tmp) for f in fs}
+    fq = {p: dict(size=os.stat(p).st_size, mtime=os.stat(p).st_mtime) for p in sorted({submitted(root, r["sample_id"]).get("fastq_path") if not r.get("fastq_path") else r["fastq_path"] for r in rows} - {None, ""}) if os.path.isfile(p)}
+    json.dump(dict(analysis=name, created_at=f"{datetime.datetime.now():%F %T}", samples=[r["sample_id"] for r in rows], checksums=dict(sorted(sums.items())), fastq=fq), open(f"{tmp}/analysis.json", "w"), indent=2)
     os.replace(tmp, inp)
     return a, True, []
 
@@ -63,7 +71,7 @@ def main():
     except ValueError as e: sys.exit(f"[PYTHON-INFO] {e}")
     if errs: [log(f"!! {e}") for e in errs]; sys.exit(1)
     log(f"{'created' if new else 'resuming'} {os.path.relpath(d, ROOT)} (inputs frozen in {os.path.relpath(d, ROOT)}/inputs)")
-    log(f"run: snakemake --profile profiles/slurm --config analysis={a.analysis_name}")
+    log(f"run: python3 src/pipeline.py {a.analysis_name}")
     log(f"{datetime.datetime.now():%F %T} | elapsed {time.time() - T0:.1f} s | max RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1048576:.2f} GB")
 
 if __name__ == "__main__":

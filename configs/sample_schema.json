@@ -219,7 +219,7 @@
       {
         "name": "FASTQ (local)",
         "format": "gzipped FASTQ (`.fastq.gz`), one file per sample, absolute path on the cluster",
-        "use": "The preferred source. Step `01_fetch` length-filters it with seqkit into `results/<analysis>/data/<sample_id>.fastq.gz`; the original file is never modified. A file outside `$HOME` and the repo needs `--bind <dir>` in `profiles/slurm/config.yaml`."
+        "use": "The preferred source. Step `01_fetch` length-filters it with seqkit into `results/<analysis>/data/<sample_id>.fastq.gz`; the original file is never modified. Directories outside the repo are bound into the container automatically by the driver (`src/pipeline.py`)."
       },
       {
         "name": "SRA run accession",
@@ -363,7 +363,7 @@
       },
       {
         "key": "threads, mem_mb, runtime",
-        "meaning": "CPU, memory (MB) and time (minutes) of each rule, set in the Snakefile. `get_best_node` uses them to choose a partition and node with enough free resources when each job is submitted.",
+        "meaning": "CPU, memory (MB) and time (minutes) of each job, set in `src/pipeline.py`. `get_best_node` uses them to choose a partition and node with enough free resources when each job is submitted.",
         "used_by": "every step",
         "arg": "`sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin"
       }
