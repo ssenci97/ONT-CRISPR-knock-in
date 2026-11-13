@@ -7,7 +7,7 @@ A="$TOOLS/ALPINE"; WORK="$OUT/cwl_local"; D="$WORK/DockerFile"; R="$KV_OUT/refs"
 [ -d "$A/CWL" ] || { kv_log "ALPINE not found at $A (not running inside the image?)"; exit 1; }
 ###################################### job
 rm -rf "${OUT:?}"; mkdir -p "$WORK"
-pf=$(kv_design "d['amplicon']['primer_f_full']"); pr=$(kv_design "d['amplicon']['primer_r_full'].translate(str.maketrans('ACGT','TGCA'))[::-1]"); lha=$(kv_design "d['design']['LHA_seq']"); rha=$(kv_design "d['design']['RHA_seq']")
+pf=$(kv_design "d['amplicon']['primer_f_full']"); pr=$(kv_design "d['amplicon']['primer_r_full']"); lha=$(kv_design "d['design']['LHA_seq']"); rha=$(kv_design "d['design']['RHA_seq']")
 printf 'fastqfile: {class: File, path: %s}\nreffile: {class: File, path: %s}\nconfig: {class: File, path: %s}\nsample_name: "%s"\nprimer_1: "%s"\nprimer_2: "%s"\nprimer_check_length: %s\ndata_type: %s\ntruncated_cutoff: %s\nfive_prime_HA_seq: "%s"\nthree_prime_HA_seq: "%s"\n' \
   "$fq" "$R/alpine/ref.fa" "$R/alpine/config.tsv" "$sample_id" "$pf" "$pr" "$primer_check_length" "$data_type" "$truncated_cutoff" "$lha" "$rha" > "$OUT/job.yaml"
 ###################################### patched local copy of the CWL

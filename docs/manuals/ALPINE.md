@@ -4,7 +4,7 @@
 |---|---|
 | Paper | Chen et al. 2026, *Bioinformatics*, "ALPINE: a scalable pipeline for comprehensive classification of gene-editing outcomes from long-read amplicon sequencing" |
 | Repo | https://github.com/Maggi-Chen/ALPINE, pinned `b59121d` (v1.6) |
-| Envs | `kv` (shared; minimap2 2.22, optional `tools/minimap2_216` fallback for `patcher.py`) |
+| Env | `kv` in the container image; minimap2 2.16 in `$TOOLS/minimap2_216` for `patcher.py` |
 | Knock-in readout | **yes, purpose-built**: Unmodified, Unmodified-with-SNP, DEL/INS-small, DEL/INS-large, **HDR-\<vector\>**, Non-HDR-with/without-ITR, INV, DUP, Unclassified |
 
 ## What it does
@@ -23,7 +23,7 @@ The CWL needs private images (`aavlr_filter:1.6`, `aavlr_classify:1.6.0`, …) t
 
 Two known quirks:
 - **`group_output` fails** with "str object expected; got None" under `--no-container`. It only copies files that already exist, so the wrapper treats it as success when the classification table is present.
-- **`plot_pie_charts.py` calls `plt.show()`**, which blocks forever on a desktop session. `MPLBACKEND=Agg` is exported in `analysis_env.sh`.
+- **`plot_pie_charts.py` calls `plt.show()`**, which blocks forever on a desktop session. `MPLBACKEND=Agg` is set in the container image and by `src/kv_job.sh`.
 
 ## Inputs
 - **`fastqfile`**: one FASTQ(.gz) per sample.
@@ -32,61 +32,33 @@ Two known quirks:
 - **Optional**: `primer_1`/`primer_2`, `primer_check_length` (50), **`data_type nanopore`** (the default is pacbio-hifi), `five_prime_HA_seq`/`three_prime_HA_seq`, `HA_Seq_match_ratio` (0.90 for nanopore), `variant_window` (20), `min_qual`.
 - There is no guide input: the cut site lives in the WT row of the config.
 
-`src/build_refs.py` writes `refs/alpine/ref.fa` (WT_TRAC + Ref_HDR_CD19) and `refs/alpine/config.tsv` (WT cut 2299/2300, HDR insert 2301–4311). No ITR rows, because the donors are linear dsDNA, ssDNA and ssCTS, not AAV.
+`src/build_refs.py` writes `refs/alpine/ref.fa` (WT_TRAC + Ref_HDR_CD19) and `refs/alpine/config.tsv` (WT cut site, HDR insert coordinates). No ITR rows, because the donors are linear dsDNA, ssDNA and ssCTS, not AAV.
 
-## Results on the TRAC CD19-CAR data
-Earlier subsampled run (20,000 reads per sample, seed 42); the pipeline now uses all length-passing reads. **KI % = HDR-CD19 / classified reads.**
+## Why ALPINE calls fewer knock-ins than CRISPRLungo
 
-| run | classified | HDR-CD19 | Non-HDR-without-ITR-CD19 | top classes |
-|---|---|---|---|---|
-| Mock_r1 | 15,900 | **0 (0.00 %)** | – | Unmodified 53.1 %, DEL-small 18.1 %, Unclassified 11.0 % |
-| NoDonor_r1 | 13,777 | **0 (0.00 %)** | 1.1 % | DEL-small 61.1 %, Unclassified 20.9 %, DEL-large 14.0 % |
-| dsDNA_r1 | 14,185 | **326 (2.30 %)** | 4.4 % | DEL-small 57.1 %, Unclassified 20.9 %, DEL-large 12.3 % |
-| ssDNA_r1 | 14,224 | **54 (0.38 %)** | 5.1 % | DEL-small 58.3 %, Unclassified 19.6 %, DEL-large 14.7 % |
-| ssCTS_r1 | 12,218 | **452 (3.70 %)** | 5.9 % | DEL-small 47.3 %, Unclassified 29.6 %, DEL-large 11.1 % |
-
-About 1 min and 0.38 GB per sample. One exception: ssCTS_r1 took 60 min, with every step completing and no cause identified.
-
-Full-data run of 2026-11-09 (all length-passing reads, jobs 1926993/1926996), **KI %**:
-Mock 0.0 · NoDonor 0.0 · dsDNA 1.31 · ssDNA 0.0 · ssCTS 0.35 — against CRISPRLungo 4.23/0.85/7.12 on the
-same reads. (CRISPResso2, since removed for licence reasons, gave 4.62/1.28/7.86, agreeing with
-CRISPRLungo.) Why ALPINE is so much lower is answered below.
-
-## Why ALPINE under-reports knock-in on ONT reads
-
-Two gates, one deliberate and one a bug, verified by reading `b59121d`:
+Two gates, both in `b59121d`:
 
 1. **Insert-length gate.** `merge_aav_tag` (`classify_read.py:583`) keeps the `HDR-` tag only if
    `truncated_hdr_cutoff * full_insert_length <= observed_insert`, otherwise it rewrites it to
-   `Non-HDR-without-ITR-`. `full_hdr_cutoff` defaults to **0.95 for nanopore** (assigned at `classify_read.py:921`;
-   the CWL doc says 0.99), while CRISPRLungo was set to 0.80, so the columns were not answering the same
-   question. The wrapper now passes `truncated_cutoff` from the
-   shared `ki_min_insert_frac` (0.80), which makes them comparable.
-2. **Homology-arm gate, with the wrong preset.** `verify_update_hdr_tag` keeps the tag only for reads that
-   align to **both** arms over `ha_match_ratio` of each arm's length. That alignment is
-   `minimap2 -ax map-hifi`, **hardcoded** in `utils/data_utils.py:89`, regardless of `data_type`. On ONT
-   reads the HiFi preset yields shorter, sparser alignments, so genuine HDR reads miss the threshold and
-   are downgraded. `alpine_data_type: nanopore` never reaches these calls.
-
-   **Patched since 2026-11-11.** ALPINE itself gets this right in `classify_read.py` (four call sites use
-   `preset = "map-ont" if data_type == "nanopore" else "map-hifi"`); only two helpers hardcode it:
-   `classify/utils/data_utils.py:89` and `classify/utils/realign_ins_to_wildtype.py:12`.
-   `src/alpine.sh` now copies the whole `DockerFile/` tree into `results/<analysis>/ALPINE/<sample>/cwl_local/`
-   and rewrites `-ax map-hifi` to `-ax map-ont` there when `data_type: nanopore`, exactly as the tool's own
-   code would. **The clone at the pinned commit is never modified**, so the commit baked into the image and
-   recorded in `results/<analysis>/meta/<sample>.json` stays valid; the patch is applied to a per-run copy and
-   recorded as `minimap2_preset_patched` in that same metadata. Set `alpine_data_type` to anything but
-   `nanopore` and no patching happens.
+   `Non-HDR-without-ITR-`. The wrapper passes `truncated_cutoff` from the shared `ki_min_insert_frac`,
+   the same threshold CRISPRLungo is scored with, so the two columns answer the same question.
+2. **Homology-arm gate.** `verify_update_hdr_tag` keeps the tag only for reads that align to **both** arms
+   over `ha_match_ratio` of each arm's length. Two helpers hardcode `minimap2 -ax map-hifi`
+   (`classify/utils/data_utils.py:89`, `classify/utils/realign_ins_to_wildtype.py:12`) regardless of
+   `data_type`, while `classify_read.py` itself picks `map-ont` for nanopore. With `data_type: nanopore`,
+   `src/alpine.sh` copies the `DockerFile/` tree into `results/<analysis>/ALPINE/<sample>/cwl_local/` and
+   rewrites those two calls to `-ax map-ont` there. **The clone at the pinned commit is never modified**;
+   the patch is recorded as `minimap2_preset` and `minimap2_calls_patched` in `results/<analysis>/meta/<sample>.json`.
 
 `find_true_hdr_reads` additionally skips reads carrying an `SA` tag, so a chimeric alignment to a homology
 arm also costs the HDR call.
 
-**Reading the numbers**
-- **HDR-CD19 is strict**: both junctions must match the template arms within `HA_Seq_match_ratio`, so it counts precise knock-ins only.
-- **Non-HDR-without-ITR-CD19** is CAR sequence without precise junctions, meaning partial or imperfect integration. Its 1.1 % in NoDonor is the false-positive floor of that class on ONT reads.
-- **Unclassified** is 11–30 %, mostly reads failing the primer, quality or full-length checks.
-
-Validated once against the shipped `testdata/`: the classification table was identical to the committed expected output.
+**Reading the classes**
+- **HDR-CD19** is strict: both junctions must match the template arms within `HA_Seq_match_ratio`, so it counts precise knock-ins only.
+- **Non-HDR-without-ITR-CD19** is CAR sequence without precise junctions, meaning partial or imperfect integration. Compare it with the no-donor control to see the false-positive floor of that class on ONT reads.
+- **Unclassified** is mostly reads failing the primer, quality or full-length checks.
 
 ## primer_2 orientation
-The `filter_primer` step looks for `primer_1` at the start of the read and `primer_2` *as given* at the end. That means `primer_2` must be the reverse complement of the 5'→3' reverse primer (`filter_fastq_gz.py:107-116`). Checked on 3,096 dsDNA_r1 reads: 0 % pass with the reverse primer as written and 72 % pass with its reverse complement. `src/alpine.sh` now passes the reverse complement.
+`primer_2` is the reverse primer **as ordered (5'→3')**. `filter_fastq_gz.py` reverse-complements it itself in `main()` (`revcom(args.reve)`) before `primer_in` looks for it at the read ends, so passing it already reverse-complemented makes the filter look for the wrong strand at both ends.
+
+Checked with ALPINE's own `primer_in` on synthetic top- and bottom-strand amplicons: both pass with the primer as written, neither with its reverse complement. If ALPINE classifies only a tiny fraction of the length-passing reads (visible in the Results tab with **Read filtering panel**), check this first.

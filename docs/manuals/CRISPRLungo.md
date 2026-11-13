@@ -4,7 +4,7 @@
 |---|---|
 | Paper | Hwang, Pinello et al. 2026, *Nature Biomedical Engineering*, "Analysing long-read CRISPR experiments with CRISPRLungo" |
 | Repo | https://github.com/pinellolab/CRISPRLungo, pinned `e31ea36` (actively maintained) |
-| Env | `kv` (shared): the repo's `environment.yml` (python 3.10, minimap2 2.22, samtools, pysam 0.19.1, pyspoa, vsearch, edlib) plus `pip install -e tools/CRISPRLungo` |
+| Env | `kv` in the container image (`envs/kv.yml`, locked in `containers/kv.lock.txt`) plus `pip install --no-deps -e` of the pinned clone |
 | Knock-in readout | **yes**: `--induced_sequence_path` labels reads `Precise` / `Precise_with_mutations`, and `--integration_file` names large insertions by matching them to the donor sequence |
 
 ## What it does
@@ -25,29 +25,16 @@ CRISPRlungo refs/TRAC_WT.fa data/<label>.fastq.gz results/CRISPRLungo/<label> GA
 - **Outputs** in `<outdir>/results/`: `read_classification.txt` (per read: Classification, Mutation_info, Integration_info, Induce_type), `Allele_table.txt`, `mutation_summary_count.txt`, `visualization.sorted.bam`.
 
 ## KI % definition
-**Reads whose `Integration_info` blocks together cover ≥ 80 % of the CAR insert, over classified reads**
-(`src/summarize.py`, shared parameter `ki_min_insert_frac`, default 0.80). Overlapping and adjacent blocks
+**Reads whose `Integration_info` blocks together cover at least `ki_min_insert_frac` of the CAR insert, over classified reads**
+(`src/summarize.py`, shared parameter in `configs/param_configs.yaml`). Overlapping and adjacent blocks
 are merged before measuring, so a read whose insert is reported in several pieces is scored on the union of
-those pieces. Before 2026-11-11 only the largest single block was used, which under-counted knock-in.
+those pieces.
 
-`Induce_type` is **not** used: it compares each read with the whole expected allele, and with a 2,011 bp insert in about Q15 reads every read is labelled `X`. Upstream's answer to that is `--large_induced_insertion`, which judges the junction anchors against a badread-simulated control; that code path crashed twice on upstream bugs (a missing `minimap2_opt` argument, then `[]` passed as `anchor_information`), so it is not used and the tool is not patched.
+`Induce_type` is **not** used: it compares each read with the whole expected allele, and with a multi-kb insert in ONT reads nearly every read is labelled `X`. Upstream's answer to that is `--large_induced_insertion`, which judges the junction anchors against a badread-simulated control; that code path crashed twice on upstream bugs (a missing `minimap2_opt` argument, then `[]` passed as `anchor_information`), so it is not used and the tool is not patched.
 
-## Results on the TRAC CD19-CAR data
-Earlier subsampled run (20,000 reads per sample, seed 42); the pipeline now uses all length-passing reads.
-
-| run | classified | WT | LargeIns | ≥ 80 % CAR insert | **KI %** |
-|---|---|---|---|---|---|
-| Mock_r1 | 14,419 | 14,407 | 0 | 0 | **0.00** |
-| NoDonor_r1 | 11,088 | 155 | 104 | 1 | **0.01** |
-| dsDNA_r1 | 11,390 | 291 | 765 | 469 | **4.12** |
-| ssDNA_r1 | 11,599 | 86 | 578 | 89 | **0.77** |
-| ssCTS_r1 | 8,706 | 91 | 959 | 622 | **7.14** |
-
-About 1.1 min and 0.6 GB per sample.
-
-**Reading the numbers**
-- **Edited samples are almost never WT.** NoDonor and the donor samples are 97–99 % edited, mostly deletions. Mock is 99.9 % WT, so control filtering works.
-- **Matching the cassette matters.** NoDonor has 104 large insertions but only 1 matching the CAR cassette. ssDNA has 578 large insertions but only 89 full-cassette matches, so its donors integrate mostly as fragments. Counting `LargeIns` alone would overestimate knock-in.
+## Reading the classes
+- **Edited samples are rarely WT.** Compare donor and no-donor samples with the mock control: the control should be almost all WT.
+- **Matching the cassette matters.** Not every large insertion is the CAR cassette, and donors can integrate as fragments. KI % counts only insertions whose merged blocks cover `ki_min_insert_frac` of the insert; counting `LargeIns` alone would overestimate knock-in. Shorter matches are reported as partial knock-in.
 
 ## Notes
 - **`--control` is strongly recommended.** Without it, homopolymer sequencing errors show up as small indels.

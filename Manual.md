@@ -9,7 +9,6 @@
 
 | Excluded | Reason |
 |---|---|
-| CRISPResso2 (`240cd0a`) | MGH licence forbids copying → [LICENSES.md](LICENSES.md) |
 | GREPore-seq, VAULT/IDMseq, longread_umi | no knock-in readout |
 | PANGEA | repository gone |
 
@@ -19,8 +18,8 @@
 |---|---|
 | cluster | `python3` (PyYAML optional), `sbatch`, `singularity` (`module load singularity`), `curl` |
 | workstation (build) | `docker` or `podman` |
-| disk | ~15 GB data/results + ~5 GB image |
-| resources | `RES` in `src/pipeline.py`: GENOA; `alpine`/`lungo` 32 CPU · 128 GB · 24 h; `download`/`filter` 16 CPU · 32 GB |
+| disk | room for the downloaded reads, results and the image |
+| resources | CPU, memory and time per job type in `RES` in `src/pipeline.py`; `get_best_node` picks the partition and node |
 
 ## 3. Layout
 
@@ -68,7 +67,7 @@
 |---|---|
 | image | `srun -p THIN --mem=16G -c 4 --time=00:30:00 containers/build.sh pull` |
 | console (auto-loads singularity) | `python3 src/gui_serve.py` |
-| tests (optional, ~30 s) | `python3 -m pytest -q tests` |
+| tests (optional) | `python3 -m pytest -q tests` |
 
 | Image detail | Definition |
 |---|---|
@@ -83,10 +82,10 @@
 | Item | Value |
 |---|---|
 | project | SRA PRJNA1257358 — Nitulescu et al. 2025, *Mol Ther Nucleic Acids*, doi:10.1016/j.omtn.2025.102568 |
-| edit | CD19-CAR (2,011 bp) at *TRAC*, primary human T cells, AsCas12a |
-| amplicon | 4.36 kb, ONT R10.4.1 |
+| edit | CD19-CAR at *TRAC*, primary human T cells, AsCas12a |
+| amplicon | ONT R10.4.1 |
 | `download` | `.sra` from NCBI S3 → `fasterq-dump` → count checked against ENA |
-| `filter` | keep 3.5–7.5 kb; stats in `data/stats/<sample>.tsv` |
+| `filter` | keep reads between `fetch.min_len` and `fetch.max_len`; stats in `data/stats/<sample>.tsv` |
 
 | Label | Run | Condition |
 |---|---|---|
@@ -100,39 +99,27 @@
 
 | Term | Definition |
 |---|---|
-| WT | hg38 chr14:22,545,232-22,549,589 (4,358 bp), Ensembl REST, bounded by paper primers |
-| KI allele | WT + Table S1 AsCas12a template (305 bp arms, PAM-blocking); 6,373 bp |
-| insert | 2,011 bp |
-| guide | crRNA `GAGTCTCTCAGCTGGTACACGGC`, minus strand, cut after WT base 2299 |
-| extra outputs | `refs/alpine/{ref.fa,config.tsv}`, `refs/design.json` |
-| template check | full-insert reads match AsCas12a template (85/17/108 of 3,000 dsDNA/ssDNA/ssCTS), never SpCas9 |
+| WT | hg38 window `refs.region` from Ensembl REST, trimmed to the paper primers |
+| KI allele | WT + the donor template selected by `build_refs.template_title` (PAM-blocking arms) |
+| guide | `build_refs.guide`; cut position from `cut_offset_from_guide_5p` |
+| extra outputs | `refs/alpine/{ref.fa,config.tsv}`, `refs/design.json` (lengths, arms, cut site) |
 
 ## 8. Tool settings
 
 | Tool | Settings | KI % |
 |---|---|---|
-| ALPINE | WT + HDR refs; ONT-tailed primers, `primer_check_length 150`; template arms; `data_type nanopore` | HDR / classified |
-| CRISPRLungo | `--cleavage_pos 17`; `--window 25`; `--control Mock_r1`; `--induced_sequence_path`; `--integration_file` | integration ≥ 80 % of insert / classified |
+| ALPINE | WT + HDR refs; full primers (`primer_2` = reverse primer as ordered); `primer_check_length`; template arms; `data_type nanopore` | HDR / classified |
+| CRISPRLungo | `--cleavage_pos`; `--window`; `--control` (first ticked control); `--induced_sequence_path`; `--integration_file` | integration ≥ `ki_min_insert_frac` of insert / classified |
 
-## 9. Reference results
+## 9. Reading the results
 
-| Run | Tool | Mock | NoDonor | dsDNA | ssDNA | ssCTS |
-|---|---|---|---|---|---|---|
-| subsampled (20k reads) | ALPINE | 0.00 | 0.00 | 2.30 | 0.38 | 3.70 |
-| subsampled (20k reads) | CRISPRLungo | 0.00 | 0.01 | 4.12 | 0.77 | 7.14 |
-| full, 2026-11-09 | ALPINE | 0.00 | 0.00 | 1.31 | 0.00 | 0.35 |
-| full, 2026-11-09 | CRISPRLungo | 0.00 | 0.00 | 4.23 | 0.85 | 7.12 |
-
-Both predate the 2026-11-11 fixes (ALPINE `map-ont` patch, CRISPRLungo block union): expect both to rise.
-
-| Finding | Definition |
+| Check | What to look for |
 |---|---|
-| controls | clean in both tools |
-| donor ranking | ssCTS > dsDNA ≫ ssDNA (matches paper) |
-| ALPINE | precise HDR only; `Non-HDR-without-ITR` adds 4–6 % (1.1 % in NoDonor = false-positive floor) |
-| CRISPRLungo | any near-full cassette at cut; ~1.8–2× ALPINE |
-| ssDNA | mostly fragments: 578 large insertions, 89 full cassette |
-| non-WT reads | 97–99 % in edited samples, mostly deletions; not comparable to flow CAR+ % |
+| controls | mock and no-donor samples should show no full knock-in in either tool |
+| read filtering | Results tab → **Read filtering panel**: raw → length-passing → classified reads per tool; a tool classifying only a small fraction points at a setup problem (primers, preset) |
+| ALPINE vs CRISPRLungo | ALPINE counts only precise HDR (both arms validated); CRISPRLungo counts any near-full cassette at the cut, so it is expected to be higher |
+| partials | `Non-HDR-*` (ALPINE) and sub-threshold insertions (CRISPRLungo) are reported as partial knock-in, not hidden |
+| non-WT reads | edited samples are mostly deletions; not comparable to flow-cytometry CAR+ % |
 
 ## 10. Troubleshooting
 
@@ -149,10 +136,10 @@ Both predate the 2026-11-11 fixes (ALPINE `map-ont` patch, CRISPRLungo block uni
 | ALPINE `--no-container` refused | `DockerRequirement`; stripped by `src/alpine.sh` |
 | ALPINE hangs at `count_read` | `plt.show()`; `MPLBACKEND=Agg` |
 | ALPINE `group_output … got None` | cosmetic; success if table exists |
-| ALPINE one sample 60 min | seen once (ssCTS_r1); rerun |
-| ALPINE ≪ CRISPRLungo | stricter by design + `map-hifi` bug, patched 2026-11-11 |
+| ALPINE ≪ CRISPRLungo | stricter by design (precise HDR only); `map-hifi` helpers patched to `map-ont` per run |
+| ALPINE classifies almost no reads | `primer_2` must be the reverse primer as ordered (ALPINE reverse-complements it itself) |
 | CRISPRLungo 0 desired edits | PAM mutation at +20 bp → `--window 25` |
-| CRISPRLungo `Induce_type` = `X` | expected for 2 kb insert on ONT; KI uses integration matching |
+| CRISPRLungo `Induce_type` = `X` | expected for a multi-kb insert on ONT; KI uses integration matching |
 | CRISPRLungo `--large_induced_insertion` crash | upstream bugs; not used |
 | podman `lstat /run/user/<uid>` | no user session; fallback `$TMPDIR/podman-$(id -u)` |
 | podman `newuidmap` / subuid | needs admin; use Docker on workstation + `singularity pull` |
@@ -173,8 +160,8 @@ Both predate the 2026-11-11 fixes (ALPINE `map-ont` patch, CRISPRLungo block uni
 
 ## 12. Which tool
 
-| Tool | Score | Use for | Cost per sample |
-|---|---|---|---|
-| ALPINE | 8/10 | strictest precise-HDR fraction; partials separate | ~6 min, 0.15 GB |
-| CRISPRLungo | 7/10 | full outcome spectrum, control filtering, donor matching | ~11 min, 5 GB |
-| **default** | — | both together, with a mock control | — |
+| Tool | Use for |
+|---|---|
+| ALPINE | strictest precise-HDR fraction; partials separate |
+| CRISPRLungo | full outcome spectrum, control filtering, donor matching |
+| **default** | both together, with a mock control |

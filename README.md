@@ -8,7 +8,6 @@ KNOCKIN-VAL is a toolkit for validating CRISPR knock-in experiments with Oxford 
 |---|---|
 | **Scope** | ONT reads of CRISPR knock-in PCR amplicons; tools with a native knock-in readout only |
 | **Runs on** | a SLURM HPC cluster with Singularity/Apptainer; jobs are placed by `get_best_node` |
-| **Removed** | CRISPResso2 (2026-11-11): its licence forbids redistribution → [LICENSES.md](LICENSES.md) |
 | **Full reference** | [Manual.md](Manual.md) · [ALPINE](docs/manuals/ALPINE.md) · [CRISPRLungo](docs/manuals/CRISPRLungo.md) · [Inputs](docs/manuals/Inputs.md) |
 
 ## Inputs and parameters
@@ -136,7 +135,7 @@ Each sample card has a **Local file | SRA** switch, with Local file as the defau
 
 ### Run
 
-The screenshot below is a finished run of the example data: 5 samples, 23 jobs, about 13 minutes on two nodes.
+The screenshot below is a finished run of the example data.
 
 ![run](docs/img/gui_run.png)
 
@@ -156,7 +155,7 @@ The screenshot below is a finished run of the example data: 5 samples, 23 jobs, 
 | Term | Definition |
 |---|---|
 | KI % | `results/<name>/summary_matrix.tsv`: tool × sample |
-| Read outcomes | one card per sample from `results/<name>/summary_classes.tsv`. **Reads**: raw reads, length-passing reads and reads each tool classified, as counts and % of raw reads. **ALPINE / CRISPRLungo**: classified reads split into the six outcome groups below, as counts and % of that tool's classified reads. Hover a bar for the tool classes inside it; **Tool classes** lists them as a table. Colours are checked for colour-blind readers and every bar is labelled in words. |
+| Read outcomes | chart builder on `results/<name>/summary_classes.tsv`. You choose the **samples**, **tools** and **outcomes** (the 6 groups below, or each tool's own classes), the **values** (reads, or % of classified, length-passing or raw reads), the **layout** (what goes in separate panels, rows and colours: e.g. all samples in one plot, one plot per sample, one per outcome), **stacked or side by side** bars, labels (value, count + %, none), sort order and shared or per-panel scale. **Read filtering panel** adds raw → length-passing → classified reads per sample. **Quick layouts** set common combinations in one click; choices are remembered in the browser. **Download SVG / PNG / TSV** saves exactly what is shown. Colours are checked for colour-blind readers, keep the same colour per sample/tool/outcome whatever is selected, and every bar has a legend entry and a hover label. |
 | per sample | `results/<name>/meta/<sample_id>.json`: submitted fields plus one record per step |
 
 ![metadata](docs/img/04_metadata.svg)
@@ -231,13 +230,13 @@ cat results/<name>/summary_matrix.tsv           # KI % per tool x sample
 | `metric` column | the definition used for each row of `summary.tsv` |
 | denominator | length-passing reads (`reads_used`), not all reads |
 | control caveat | the CRISPRLungo control is ≈ 0 by construction; use `NoDonor` as its negative |
-| ALPINE caveat | under-reports on ONT; see [docs/manuals/ALPINE.md](docs/manuals/ALPINE.md) |
+| ALPINE vs CRISPRLungo | ALPINE counts precise HDR only and is expected to be lower; see [docs/manuals/ALPINE.md](docs/manuals/ALPINE.md) |
 
 ### Reads that are not knock-in are not thrown away
 
 A read that is neither a clean knock-in nor unedited is still counted and reported, so a failed experiment can be told apart from a partly successful one.
 
-- **Partial inserts (more than 0 but below the threshold)** are counted in their own columns of `summary.tsv`: `partial_reads` and `partial_pct`. For ALPINE these are the `Non-HDR-...` classes, which is exactly what ALPINE calls a read whose insert is too short; for CRISPRLungo they are reads with some insert integration whose merged blocks cover less than `ki_min_insert_frac` of the insert. In the public data these are not rare: ALPINE reported 4–6 % `Non-HDR-...` reads in the donor samples, against 0 % in the controls.
+- **Partial inserts (more than 0 but below the threshold)** are counted in their own columns of `summary.tsv`: `partial_reads` and `partial_pct`. For ALPINE these are the `Non-HDR-...` classes, which is exactly what ALPINE calls a read whose insert is too short; for CRISPRLungo they are reads with some insert integration whose merged blocks cover less than `ki_min_insert_frac` of the insert.
 - **Everything else is distinguished too, not merged into "not knock-in".** Both tools classify every read, and the full class breakdown with percentages goes into the `notes` column of `summary.tsv`. A small insertion or deletion at the cut is therefore a different outcome from an unedited read: ALPINE reports `Unmodified`, `Unmodified-with-SNP`, `DEL-small`, `INS-small`, `DEL-large`, `INS-large`, `INV`, `DUP`, `Unclassified`; CRISPRLungo reports `WT`, `Sub`, `Ins`, `Del`, `LargeIns`, `LargeDel`, `Inversion`, `Complex`.
 - The per-read tables are kept as well, under `results/<name>/ALPINE/<sample>/` and `results/<name>/CRISPRLungo/<sample>/results/`, if you want to go back to individual reads.
 
