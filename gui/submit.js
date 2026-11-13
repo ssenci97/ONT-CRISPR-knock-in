@@ -1,5 +1,5 @@
 const $ = (s, r = document) => r.querySelector(s);
-const state = { schema: null, params: {}, rows: [], example: false, stash: [] };
+const state = { schema: null, params: {}, rows: [], examples: [], example: "" };
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -228,6 +228,13 @@ function status(text, isError) {
 async function init() {
   state.schema = await (await fetch("/api/schema")).json();
   state.params = await (await fetch("/api/params")).json();
+  state.examples = (await (await fetch("/api/examples")).json()).examples || [];
+  for (const e of state.examples) {
+    const b = el("button", "pill purple"); b.type = "button"; b.title = e.title; b.dataset.example = e.name;
+    b.append(icon("sparkles"), document.createTextNode(e.button));
+    b.addEventListener("click", () => pickExample(e));
+    $("#examples").append(b);
+  }
   renderInfo();
   toggleInfo(store.get("kv_info") !== "0");
   fill([]);
@@ -236,36 +243,40 @@ async function init() {
 async function loadSaved() {
   const { samples } = await (await fetch("/api/samples")).json();
   fill(samples);
-  state.stash = [];
-  setExample(false);
+  setExample("");
   status(samples.length ? `${samples.length} saved sample(s) loaded from configs/samples.tsv` : "No saved samples.", false);
 }
 
-function setExample(on) {
-  state.example = on;
-  $("#example span").textContent = on ? "Hide example data" : "Show example data";
+function setExample(name) {
+  state.example = name;
+  for (const b of document.querySelectorAll("#examples button")) b.classList.toggle("on", b.dataset.example === name);
 }
 
-function toggleExample() {
-  if (state.example) {
-    fill(state.stash);
-    state.stash = [];
-    setExample(false);
-    status("Example data hidden. Your previous entries were restored.", false);
-    return;
-  }
-  state.stash = state.rows.map(read).filter((r) => Object.values(r).some((v) => v && v !== "0"));
-  fill((state.schema.example || []).map((x) => ({ ...x })));
-  setExample(true);
-  status("Example data: 5 public ONT runs (BioProject PRJNA1257358), sample names as the authors named them. With thanks to Nitulescu, Du, Glaser, Kath, Aird, Cullot, Greensmith, Mikkelsen, Stein, Bak, Kaminski, Corn and Wagner for making this dataset public — Mol Ther Nucleic Acids 2025, doi:10.1016/j.omtn.2025.102568. Click again to hide. Save to use them.", false);
+function pickExample(ex) {
+  fill(ex.samples.map((x) => ({ ...x })));
+  setExample(ex.name);
+  status(`${ex.credit}\n\nSave to use them: saving also replaces configs/param_configs.yaml with this example's (the previous one is kept as configs/param_configs.yaml.bak). Clear empties the cards.`, false);
+}
+
+function clearSamples() {
+  fill([]);
+  setExample("");
+  status("Cards cleared. Nothing is saved until you click Save samples.", false);
 }
 
 async function submit() {
   const samples = state.rows.map(read);
-  const res = await fetch("/api/samples", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ samples }) });
+  const res = await fetch("/api/samples", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ samples, example: state.example }) });
   const body = await res.json();
   if (!res.ok) return status("Not saved:\n  " + (body.errors || [body.error]).join("\n  "), true);
-  status([`Saved ${body.n} sample(s).`, `  ${body.samples_tsv}`, ...body.sample_json.map((p) => `  ${p}`)].join("\n"), false);
+  const lines = [`Saved ${body.n} sample(s).`, `  ${body.samples_tsv}`, ...body.sample_json.map((p) => `  ${p}`)];
+  if (body.params_yaml) {
+    lines.push(`Parameters of example ${state.example} copied to ${body.params_yaml} (previous one kept as ${body.params_yaml}.bak).`);
+    state.params = await (await fetch("/api/params")).json();
+    renderInfo();
+    setExample("");
+  }
+  status(lines.join("\n"), false);
 }
 
 function tab(name) {
@@ -678,7 +689,7 @@ async function refreshResults() {
 
 for (const b of document.querySelectorAll("nav button")) b.addEventListener("click", () => tab(b.dataset.tab));
 $("#toggle-info").addEventListener("click", () => toggleInfo($("#info").hidden));
-$("#example").addEventListener("click", toggleExample);
+$("#clear").addEventListener("click", clearSamples);
 $("#add").addEventListener("click", () => add());
 $("#reload").addEventListener("click", loadSaved);
 $("#submit").addEventListener("click", submit);

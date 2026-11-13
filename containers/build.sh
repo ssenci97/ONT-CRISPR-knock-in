@@ -24,7 +24,7 @@ pinned() { local c; c=$(commit_of "$1"); [[ "$c" =~ ^[0-9a-f]{40}$ ]] || { log "
 repo_of() { awk -F'\t' -v n="$1" 'NR>1 && $1==n{print $2}' configs/tools.tsv; }
 ###################################### engine
 MODE="${1:-build}"
-if [ "$MODE" = orfeo ] || [ "$MODE" = pull ]; then
+if [ "$MODE" = orfeo ] || [ "$MODE" = pull ] || [ "$MODE" = test ]; then
   orfeo_only=1
 else
   orfeo_only=0
@@ -74,6 +74,43 @@ push_image() {
   printf 'KV_IMAGE_REF=%s@%s\n' "${image%:*}" "$d" > "$digests"
   log "wrote $digests: ${image%:*}@$d -- commit it"
 }
+###################################### tests
+tests_start() {
+  tests_out=""; tests_pid=""
+  [ "${KV_SKIP_TESTS:-0}" = 1 ] && { log "tests skipped (KV_SKIP_TESTS=1)"; return; }
+  if ! python3 -c "import pytest, yaml, openpyxl" 2>/dev/null; then
+    log "!! unit tests skipped: host python3 lacks pytest/pyyaml/openpyxl (python3 -m pip install --user pytest pyyaml openpyxl)"; return
+  fi
+  tests_out="$(mktemp "${TMPDIR:-/tmp}/kv_tests.XXXXXX")"
+  log "unit tests started in the background (host python3, no container needed)"
+  (cd "$KV_ROOT" && python3 -m pytest -q -p no:cacheprovider tests > "$tests_out" 2>&1) & tests_pid=$!
+}
+tests_wait() {
+  [ -n "$tests_pid" ] || return 0
+  local rc=0; wait "$tests_pid" || rc=$?
+  sed 's/^/[SLURM-INFO]   /' "$tests_out"; rm -f "$tests_out"
+  [ "$rc" -eq 0 ] && log "unit tests passed" || { log "!! unit tests FAILED (rc $rc)"; return 1; }
+}
+smoke() {
+  local app="$1"
+  log "container smoke test on $sif"
+  "$app" exec --cleanenv "$KV_ROOT/$sif" bash -c 'set -euo pipefail; export PATH=/opt/conda/envs/kv/bin:$PATH TOOLS=/opt/tools
+    python -c "import pysam, Bio, yaml, openpyxl, tqdm, pandas, edlib"
+    for b in minimap2 samtools seqkit vsearch blastn fasterq-dump pigz curl flock CRISPRlungo; do command -v "$b" >/dev/null || { echo "MISSING $b"; exit 1; }; done
+    [ -f "$TOOLS/ALPINE/.git/HEAD" ] && [ -d "$TOOLS/CRISPRLungo" ] || { echo "MISSING ALPINE/CRISPRLungo in $TOOLS"; exit 1; }
+    "$TOOLS/minimap2_216/bin/minimap2" --version >/dev/null
+    CRISPRlungo --help >/dev/null
+    echo "minimap2 $(minimap2 --version) | $(samtools --version | head -1) | seqkit $(seqkit version | cut -d" " -f2)"' \
+    | sed 's/^/[SLURM-INFO]   /' && log "container smoke test passed" || { log "!! container smoke test FAILED"; return 1; }
+}
+test_only() {
+  local app="${KV_APPTAINER:-$(command -v singularity || command -v apptainer || true)}"
+  tests_start
+  local bad=0
+  if [ -s "$KV_ROOT/$sif" ] && [ -n "$app" ]; then smoke "$app" || bad=1; else log "!! no $sif or no singularity: container smoke test skipped"; fi
+  tests_wait || bad=1
+  [ "$bad" = 0 ] || exit 1
+}
 ###################################### orfeo
 pull() {
   local app ref
@@ -84,6 +121,7 @@ pull() {
   fi
   [ -n "$app" ] || { log "no singularity/apptainer, even after 'module load singularity' -- are you on the cluster?"; exit 1; }
   log "using $app"
+  tests_start
   ref="$image"
   if [ -s "$digests" ]; then ref="$(sed -n 's/^KV_IMAGE_REF=//p' "$digests" | tail -1)"
   else log "!! $digests missing: pulling by tag, not by digest"; fi
@@ -99,6 +137,10 @@ pull() {
   "$app" pull --force "$KV_ROOT/$sif" "docker://$ref" || { log "pull failed; if killed while creating squashfs, give it memory: srun -p THIN --mem=16G -c 4 --time=00:30:00 containers/build.sh pull"; exit 1; }
   [ -s "$KV_ROOT/$sif" ] || { log "pull reported success but $sif is missing or empty"; exit 1; }
   log "ok: $(du -h "$KV_ROOT/$sif" | cut -f1) at $KV_ROOT/$sif"
+  local bad=0
+  smoke "$app" || bad=1
+  tests_wait || bad=1
+  [ "$bad" = 0 ] || { log "!! image is in place but checks failed (see above); rerun only the checks with: containers/build.sh test"; exit 1; }
   log "now start the console (python3 src/gui_serve.py) or run: python3 src/pipeline.py <analysis>"
 }
 orfeo() {
@@ -123,6 +165,7 @@ case "$MODE" in
   push)      push_image ;;
   ship)      do_login; push_image; orfeo ;;
   orfeo)     orfeo ;;
-  *) log "usage: build.sh [build|all|lock|login|push|ship|pull|orfeo]"; exit 1 ;;
+  test)      test_only ;;
+  *) log "usage: build.sh [build|all|lock|login|push|ship|pull|test|orfeo]"; exit 1 ;;
 esac
 footer

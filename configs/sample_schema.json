@@ -169,58 +169,6 @@
    "optional": true
   }
  ],
- "example": [
-  {
-   "sample_id": "Mock_electroporated_r1",
-   "srr": "SRR33387478",
-   "condition": "mock_electroporated",
-   "platform": "ONT",
-   "target_locus": "TRAC",
-   "nuclease": "AsCas12a",
-   "donor_format": "none",
-   "control_tier": "mock"
-  },
-  {
-   "sample_id": "No_donor_r1",
-   "srr": "SRR33387470",
-   "condition": "rnp_no_donor",
-   "platform": "ONT",
-   "target_locus": "TRAC",
-   "nuclease": "AsCas12a",
-   "donor_format": "none",
-   "control_tier": "no_donor"
-  },
-  {
-   "sample_id": "dsDNA_r1",
-   "srr": "SRR33387467",
-   "condition": "rnp_dsDNA_donor",
-   "platform": "ONT",
-   "target_locus": "TRAC",
-   "nuclease": "AsCas12a",
-   "donor_format": "dsDNA",
-   "control_tier": "treated"
-  },
-  {
-   "sample_id": "ssDNA_r1",
-   "srr": "SRR33387464",
-   "condition": "rnp_ssDNA_donor",
-   "platform": "ONT",
-   "target_locus": "TRAC",
-   "nuclease": "AsCas12a",
-   "donor_format": "ssDNA",
-   "control_tier": "treated"
-  },
-  {
-   "sample_id": "ssCTS_r1",
-   "srr": "SRR33387474",
-   "condition": "rnp_ssCTS_donor",
-   "platform": "ONT",
-   "target_locus": "TRAC",
-   "nuclease": "AsCas12a",
-   "donor_format": "ssCTS",
-   "control_tier": "treated"
-  }
- ],
  "info": {
   "inputs": [
    {

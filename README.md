@@ -129,7 +129,7 @@ Each analysis freezes its own copy of these values in `results/<analysis>/inputs
 
 ### Samples
 
-The page starts empty. **Show example data** fills in five public ONT runs of a published knock-in experiment (BioProject PRJNA1257358, credited under [Credits and citation](#credits-and-citation)). **Hide info** collapses the definitions above. Each card keeps the fields the pipeline needs; the sequencing and wet-lab fields sit at the end under **Optional details**, collapsed by default.
+The page starts empty. **Example 1: Nitulescu 2025** fills in five public ONT runs of a published knock-in experiment (BioProject PRJNA1257358) and **Example 2: ARCUS 2025** three runs of a second one (BioProject PRJNA1183863), both credited under [Credits and citation](#credits-and-citation); saving an example also switches `configs/param_configs.yaml` to its parameters (see [Example datasets](#example-datasets)). **Clear** empties the cards. **Hide info** collapses the definitions above. Each card keeps the fields the pipeline needs; the sequencing and wet-lab fields sit at the end under **Optional details**, collapsed by default.
 
 ![samples: info panel](docs/img/gui_samples_info.png)
 
@@ -280,7 +280,8 @@ The KI % matrix shows only `ki_pct`; the Results tab charts the groups per sampl
 | `build.sh build` | workstation (Docker) | builds the image |
 | `build.sh lock` | workstation | writes `containers/kv.lock.txt` |
 | `build.sh ship` | workstation | login + push, records the digest in `containers/images.env`, prints the cluster pull commands |
-| `build.sh pull` | SLURM HPC cluster | `singularity pull` of the pinned digest → `containers/ont-knockin-val.sif` |
+| `build.sh pull` | SLURM HPC cluster | `singularity pull` of the pinned digest → `containers/ont-knockin-val.sif`; the unit tests run in the background during the pull, then a container smoke test (tools present, imports work). Exits non-zero if either fails; `KV_SKIP_TESTS=1` skips the unit tests |
+| `build.sh test` | SLURM HPC cluster | the same unit tests + smoke test, without pulling |
 
 | Variable | Definition |
 |---|---|
@@ -293,9 +294,12 @@ The KI % matrix shows only `ki_pct`; the Results tab charts the groups per sampl
 
 ## Example datasets
 
-Two published experiments are wired up. Example 1 is the default: `configs/samples.tsv` and
-`configs/param_configs.yaml` are already set up for it. Example 2 lives in
-`configs/examples/example_arcus/` and is switched in by copying those two files over the defaults.
+Two published experiments are wired up, each in its own folder under `configs/examples/`
+(`example_nitulescu/`, `example_arcus/`) with a `samples.tsv`, a `param_configs.yaml` and a `meta.yaml`
+(button label, title, credit). Example 1 is the default: `configs/param_configs.yaml` is already set up for it.
+In the console, the **Example 1** / **Example 2** buttons fill the sample cards; **Save samples** then also copies
+that example's `param_configs.yaml` over `configs/param_configs.yaml` (the previous one is kept as
+`configs/param_configs.yaml.bak`). From the shell, copy the two files over the defaults instead.
 
 | | Example 1 (default) | Example 2 |
 |---|---|---|
@@ -374,6 +378,6 @@ Three honest limits of this:
 
 | Item | Definition |
 |---|---|
-| tests | `python3 -m pytest -q tests` (no cluster, no container) |
+| tests | run automatically by `containers/build.sh pull`; alone: `containers/build.sh test` or `python3 -m pytest -q tests` (host python3 needs `pytest pyyaml openpyxl`) |
 | diagrams | edit `docs/diagrams/*.dot` → `bash src/diagrams.sh` |
 | gitignored | `tools/ data/ results/ .singularity/ .kv_bin/ .kv_env/` |

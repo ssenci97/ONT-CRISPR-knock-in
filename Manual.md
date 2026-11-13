@@ -67,7 +67,7 @@
 |---|---|
 | image | `srun -p THIN --mem=16G -c 4 --time=00:30:00 containers/build.sh pull` |
 | console (auto-loads singularity) | `python3 src/gui_serve.py` |
-| tests (optional) | `python3 -m pytest -q tests` |
+| tests | automatic during `build.sh pull` (unit tests in background + container smoke test); alone: `containers/build.sh test` |
 
 | Image detail | Definition |
 |---|---|

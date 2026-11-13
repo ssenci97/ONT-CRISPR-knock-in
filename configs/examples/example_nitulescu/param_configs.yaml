@@ -1,0 +1,31 @@
+shared:
+  ki_min_insert_frac: 0.8
+fetch:
+  bioproject: PRJNA1257358
+  min_len: 3500
+  max_len: 7500
+refs:
+  region: 14:22540000..22560000:1
+  pmc: PMC12166421
+build_refs:
+  genomic_fasta: data/raw_refs/hg38_chr14_22540000_22560000.fa
+  genomic_start_1based: 22540000
+  templates_xlsx: data/raw_refs/supp/mmc2.xlsx
+  template_title: TRAC CD19-CAR HDR template for editing with AsCas12a
+  guide: GAGTCTCTCAGCTGGTACACGGC
+  cut_offset_from_guide_5p: 18
+  primer_f_full: TTTCTGTTGGTGCTGATATTGCTTCAATCACTGCTGTGTCCCT
+  primer_r_full: ACTTGCCTGTCGCTCTATCTTCTCCCACCCCAGACCTCCTAGTT
+  primer_f_specific: TTCAATCACTGCTGTGTCCCT
+  primer_r_specific: TCCCACCCCAGACCTCCTAGTT
+  out_dir: refs
+alpine:
+  primer_check_length: 150
+  data_type: nanopore
+lungo:
+  cleavage_pos: 17
+  window: 25
+summarize: {}
+gui_serve:
+  host: 127.0.0.1
+  port: 8000

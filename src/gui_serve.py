@@ -13,6 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARAM_YAML, NAME = f"{ROOT}/configs/param_configs.yaml", "gui_serve"
 GUI, SCHEMA = f"{ROOT}/gui", f"{ROOT}/configs/sample_schema.json"
 SAMPLES_TSV, SAMPLES_DIR = f"{ROOT}/configs/samples.tsv", f"{ROOT}/configs/samples"
+EXAMPLES = f"{ROOT}/configs/examples"
 STATIC = {"/": ("submit.html", "text/html"), "/submit.css": ("submit.css", "text/css"), "/submit.js": ("submit.js", "application/javascript")}
 RESULTS = f"{ROOT}/results"
 DEFAULT_SIF = f"{ROOT}/containers/ont-knockin-val.sif"
@@ -56,6 +57,28 @@ def load_samples():
     return out
 
 validate = analysis.validate
+
+def read_yaml(p):
+    try:
+        import yaml; return yaml.safe_load(open(p)) or {}
+    except Exception: return {}
+
+def examples():
+    out = []
+    for n in sorted(os.listdir(EXAMPLES)) if os.path.isdir(EXAMPLES) else []:
+        d = f"{EXAMPLES}/{n}"
+        if not (os.path.exists(f"{d}/samples.tsv") and os.path.exists(f"{d}/param_configs.yaml")): continue
+        m = read_yaml(f"{d}/meta.yaml")
+        out.append(dict(name=n, title=m.get("title", n), button=m.get("button", n), credit=m.get("credit", ""),
+                        samples=[{k: v for k, v in r.items() if v} for r in tsv_rows(f"{d}/samples.tsv")]))
+    return sorted(out, key=lambda e: e["title"])
+
+def apply_example(name):
+    if name not in {e["name"] for e in examples()}: return None
+    if os.path.exists(PARAM_YAML): shutil.copy(PARAM_YAML, f"{PARAM_YAML}.bak")
+    shutil.copy(f"{EXAMPLES}/{name}/param_configs.yaml", PARAM_YAML)
+    log(f"example {name}: copied its param_configs.yaml over {os.path.relpath(PARAM_YAML, ROOT)} (previous kept as .bak)")
+    return os.path.relpath(PARAM_YAML, ROOT)
 
 def analyses():
     out = []
@@ -218,10 +241,7 @@ def status(name):
                 progress=progress(steps), queue=queue(live), steps=steps,
                 node_log=tail(f"{RESULTS}/{name}/logs/node_pick.log", 20) if name else "", log=tail(run_log(name)) if name else "")
 
-def params():
-    try:
-        import yaml; return yaml.safe_load(open(PARAM_YAML)) or {}
-    except Exception: return {}
+def params(): return read_yaml(PARAM_YAML)
 
 def path_info(p):
     p = os.path.expanduser(p or "")
@@ -280,6 +300,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/status": self.send_json(200, status(self.query("analysis")))
         elif path == "/api/results": self.send_json(200, results(self.query("analysis")))
         elif path == "/api/params": self.send_json(200, params())
+        elif path == "/api/examples": self.send_json(200, dict(examples=examples()))
         elif path == "/api/path": self.send_json(200, path_info(self.query("p")))
         else: self.send_json(404, dict(error="not found"))
     def do_POST(self):
@@ -287,7 +308,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/samples":
             errs = validate(body.get("samples", []))
             if errs: return self.send_json(400, dict(errors=errs))
-            return self.send_json(200, save(body["samples"]))
+            ex = (body.get("example") or "").strip()
+            if ex and ex not in {e["name"] for e in examples()}: return self.send_json(400, dict(errors=[f"unknown example {ex}"]))
+            out = save(body["samples"])
+            return self.send_json(200, dict(out, params_yaml=apply_example(ex) if ex else None))
         if self.path == "/api/run":
             st, err = start_run((body.get("analysis") or "").strip())
             if err: return self.send_json(400, dict(errors=err if isinstance(err, list) else [err]))
