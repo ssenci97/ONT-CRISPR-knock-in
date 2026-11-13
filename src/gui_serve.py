@@ -238,19 +238,27 @@ def path_info(p):
     return out
 
 def results(name):
-    out = dict(matrix=None, rows=[], meta={})
+    out = dict(matrix=None, rows=[], classes=None, reads={}, meta={})
     if not name: return out
     a = f"{RESULTS}/{name}"
     m = f"{a}/summary_matrix.tsv"
     if os.path.exists(m): out["matrix"] = [l.split("\t") for l in open(m).read().strip().splitlines()]
     s = f"{a}/summary.tsv"
     if os.path.exists(s): out["rows"] = tsv_rows(s)
+    c = f"{a}/summary_classes.tsv"
+    if os.path.exists(c): out["classes"] = tsv_rows(c)
     d = f"{a}/meta"
     if os.path.isdir(d):
         for f in sorted(os.listdir(d)):
             if f.endswith(".json"):
                 try: out["meta"][f[:-5]] = json.load(open(f"{d}/{f}"))
                 except ValueError: pass
+    for sid, j in out["meta"].items():
+        f = (j.get("steps") or {}).get("01_fetch") or {}
+        if "raw_reads" in f: out["reads"][sid] = dict(raw_reads=f.get("raw_reads"), len_pass=f.get("len_pass"))
+    st = f"{a}/data/stats"
+    for f in sorted(os.listdir(st)) if os.path.isdir(st) else []:
+        for r in tsv_rows(f"{st}/{f}") if f.endswith(".tsv") else []: out["reads"][r["sample_id"]] = dict(raw_reads=r.get("raw_reads"), len_pass=r.get("len_pass"))
     return out
 
 ###################################### server

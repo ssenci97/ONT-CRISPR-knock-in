@@ -368,6 +368,70 @@ async function launch() {
   refreshStatus();
 }
 
+const CATS = ["Full knock-in", "Partial knock-in", "Unedited", "Small indel", "Large / structural", "Other"];
+const CAT_INFO = ["insert >= ki_min_insert_frac (ALPINE: HDR-*)", "insert present but below the threshold (ALPINE: Non-HDR-*)", "no edit at the cut (ALPINE: Unmodified*, CRISPRLungo: WT)",
+  "substitutions, small insertions or deletions (DEL/INS-small; Sub, Ins, Del)", "large insertions or deletions, inversions, duplications, complex alleles", "unclassified or any other class"];
+const fmt = (n) => Number(n).toLocaleString("en-US");
+const pctOf = (a, b) => (b ? (100 * a) / b : 0);
+const pctTxt = (p) => (p === 0 ? "0%" : p < 0.01 ? "<0.01%" : `${p < 1 ? p.toFixed(2) : p.toFixed(1)}%`);
+
+function hbar(label, n, p, cls, tip) {
+  const row = el("div", "hrow"), track = el("div", "htrack"), fill = el("i", cls);
+  fill.style.width = `${Math.min(100, p === null ? 0 : p)}%`;
+  if (n > 0) fill.classList.add("some");
+  track.append(fill);
+  row.append(el("span", "hlab", label), track, el("span", "hval", p === null ? fmt(n) : `${fmt(n)} · ${pctTxt(p)}`));
+  if (tip) row.title = tip;
+  return row;
+}
+
+function legend() {
+  const l = el("div", "legend");
+  CATS.forEach((c, i) => { const it = el("span", "leg"); it.title = CAT_INFO[i]; it.append(el("i", `cat-${i}`), document.createTextNode(c)); l.append(it); });
+  return l;
+}
+
+function renderOutcomes(r, order) {
+  const box = $("#outcomes");
+  box.textContent = "";
+  if (!r.classes) { box.append(el("p", "muted card", r.matrix ? "No summary_classes.tsv yet: run this analysis again from the Run tab (only 05_summary is resubmitted)." : "—")); return; }
+  box.append(legend());
+  const ids = [...new Set([...order, ...r.classes.map((x) => x.sample_id)])];
+  for (const id of ids) {
+    const rows = r.rows.filter((x) => x.sample_id === id), cls = r.classes.filter((x) => x.sample_id === id);
+    if (!rows.length && !cls.length) continue;
+    const card = el("section", "card outcome"), head = el("div", "out-head");
+    const cond = rows[0] && rows[0].condition, meta = (r.meta[id] || {}).submitted || {};
+    head.append(el("strong", null, id), el("span", "muted", cond || ""));
+    if (meta.control === "1") head.append(badge("idle", "negative control"));
+    card.append(head);
+    const rd = r.reads[id] || ((r.meta[id] || {}).steps || {})["01_fetch"] || {}, raw = Number(rd.raw_reads) || 0, pass = Number(rd.len_pass) || 0, base = raw || pass;
+    const fun = el("div", "funnel"), of = (k) => (base ? pctOf(k, base) : null);
+    fun.append(el("h5", null, raw ? "Reads (% of raw reads)" : pass ? "Reads (% of length-passing reads)" : "Reads"));
+    if (raw) fun.append(hbar("Raw reads", raw, 100, "funnel-bar"));
+    if (pass) fun.append(hbar("Length-passing", pass, of(pass), "funnel-bar", "kept by seqkit seq -m fetch.min_len -M fetch.max_len"));
+    for (const t of rows) if (t.reads_used) fun.append(hbar(`${t.tool} classified`, Number(t.reads_used), of(Number(t.reads_used)), "funnel-bar", `reads ${t.tool} assigned a class; outcome % below are over this number`));
+    card.append(fun);
+    const grid = el("div", "tools");
+    for (const t of rows) {
+      const n = Number(t.reads_used) || 0, mine = cls.filter((x) => x.tool === t.tool), col = el("div", "tool");
+      col.append(el("h5", null, `${t.tool} · ${fmt(n)} classified reads`));
+      if (!n) { col.append(el("p", "muted", t.notes || "no output")); grid.append(col); continue; }
+      CATS.forEach((c, i) => {
+        const sub = mine.filter((x) => x.category === c), k = sub.reduce((a, x) => a + Number(x.reads), 0);
+        col.append(hbar(c, k, pctOf(k, n), `cat-${i}`, sub.map((x) => `${x.class}: ${fmt(x.reads)} (${x.pct}%)`).join("\n") || CAT_INFO[i]));
+      });
+      const d = el("details", "classes"), su = el("summary", null, "Tool classes");
+      d.append(su, table(["category", "class", "reads", "%"], mine.map((x) => [x.category, x.class, fmt(x.reads), `${x.pct}%`])));
+      d.querySelectorAll("tbody td:nth-child(n+3)").forEach((td) => td.classList.add("num"));
+      col.append(d);
+      grid.append(col);
+    }
+    card.append(grid);
+    box.append(card);
+  }
+}
+
 async function refreshResults() {
   const name = $("#pick-results").value || currentAnalysis();
   const r = await (await fetch(`/api/results?analysis=${encodeURIComponent(name)}`)).json();
@@ -379,6 +443,7 @@ async function refreshResults() {
     t.querySelectorAll("tbody td:not(:first-child)").forEach((td) => td.classList.add("num"));
     m.append(t);
   }
+  renderOutcomes(r, r.matrix ? r.matrix[0].slice(1) : []);
   const box = $("#meta");
   box.textContent = "";
   const ids = Object.keys(r.meta);

@@ -81,7 +81,7 @@ def plan(name, root=ROOT):
         add(f"lungo_{s}", STEPS[3], f"lungo {s}", "lungo", "lungo.sh", [s, f"{a}/data/{s}.fastq.gz", f"{a}/data/{controls[0]}.fastq.gz", controls[0], f"{a}/CRISPRLungo", P["lungo"]["cleavage_pos"], P["lungo"]["window"], 32],
             [f"{a}/CRISPRLungo/{s}/results/read_classification.txt"], f"{a}/logs/04_lungo/{s}.log", [f"filter_{s}", f"filter_{controls[0]}", "refs"], inputs=[f"{a}/data/{s}.fastq.gz", f"{a}/data/{controls[0]}.fastq.gz"] + refs)
     deps = [j["key"] for st in ("alpine", "lungo", "filter") for j in jobs if j["key"].startswith(st + "_")] + ["refs"]
-    add("summary", STEPS[4], "summary", "summary", "summary.sh", [], [f"{a}/summary.tsv", f"{a}/summary_matrix.tsv"], f"{a}/logs/05_summary/summary.log", deps, inputs=[o for j in jobs if j["key"] in deps for o in j["outputs"]])
+    add("summary", STEPS[4], "summary", "summary", "summary.sh", [], [f"{a}/summary.tsv", f"{a}/summary_matrix.tsv", f"{a}/summary_classes.tsv"], f"{a}/logs/05_summary/summary.log", deps, inputs=[o for j in jobs if j["key"] in deps for o in j["outputs"]])
     check_paths(jobs, name, root)
     return jobs
 

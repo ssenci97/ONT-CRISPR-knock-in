@@ -136,7 +136,7 @@ Each sample card has a **Local file | SRA** switch, with Local file as the defau
 
 ### Run
 
-The screenshot below shows an illustrative mid-run state.
+The screenshot below is a finished run of the example data: 5 samples, 23 jobs, about 13 minutes on two nodes.
 
 ![run](docs/img/gui_run.png)
 
@@ -156,6 +156,7 @@ The screenshot below shows an illustrative mid-run state.
 | Term | Definition |
 |---|---|
 | KI % | `results/<name>/summary_matrix.tsv`: tool × sample |
+| Read outcomes | one card per sample from `results/<name>/summary_classes.tsv`. **Reads**: raw reads, length-passing reads and reads each tool classified, as counts and % of raw reads. **ALPINE / CRISPRLungo**: classified reads split into the six outcome groups below, as counts and % of that tool's classified reads. Hover a bar for the tool classes inside it; **Tool classes** lists them as a table. Colours are checked for colour-blind readers and every bar is labelled in words. |
 | per sample | `results/<name>/meta/<sample_id>.json`: submitted fields plus one record per step |
 
 ![metadata](docs/img/04_metadata.svg)
@@ -193,7 +194,7 @@ If no node fits, the default partition (GENOA) is kept. `NODE_PICK=0` turns this
 | `02_refs` | `refs` | WT / KI references, ALPINE config | `refs/` |
 | `03_alpine` | `alpine` | ALPINE, all reads, one job per sample | `ALPINE/<sample>/` |
 | `04_lungo` | `lungo` | CRISPRLungo, all reads, one job per sample | `CRISPRLungo/<sample>/` |
-| `05_summary` | `summary` | KI % per tool × sample | `summary.tsv`, `summary_matrix.tsv` |
+| `05_summary` | `summary` | KI % per tool × sample | `summary.tsv`, `summary_matrix.tsv`, `summary_classes.tsv` |
 | every job | — | log, provenance via `src/sample_meta.py` | `logs/<step>/`, `meta/<sample_id>.json` |
 
 ![single tool](docs/img/02_single_tool.svg)
@@ -240,7 +241,18 @@ A read that is neither a clean knock-in nor unedited is still counted and report
 - **Everything else is distinguished too, not merged into "not knock-in".** Both tools classify every read, and the full class breakdown with percentages goes into the `notes` column of `summary.tsv`. A small insertion or deletion at the cut is therefore a different outcome from an unedited read: ALPINE reports `Unmodified`, `Unmodified-with-SNP`, `DEL-small`, `INS-small`, `DEL-large`, `INS-large`, `INV`, `DUP`, `Unclassified`; CRISPRLungo reports `WT`, `Sub`, `Ins`, `Del`, `LargeIns`, `LargeDel`, `Inversion`, `Complex`.
 - The per-read tables are kept as well, under `results/<name>/ALPINE/<sample>/` and `results/<name>/CRISPRLungo/<sample>/results/`, if you want to go back to individual reads.
 
-Only `ki_pct` is shown in the KI % matrix; the other columns live in `summary.tsv`.
+`summary_classes.tsv` has one row per tool, sample and tool class (`tool, sample_id, category, class, reads, pct`), with `pct` over that tool's classified reads. Each class goes into one of six groups, and the groups add up to `reads_used`:
+
+| Group | ALPINE classes | CRISPRLungo reads |
+|---|---|---|
+| Full knock-in | `HDR-*` | merged insert blocks ≥ `ki_min_insert_frac` (any class) |
+| Partial knock-in | `Non-HDR-*` | merged insert blocks > 0 but below the threshold |
+| Unedited | `Unmodified`, `Unmodified-with-SNP` | `WT` |
+| Small indel | `DEL-small`, `INS-small` | `Sub`, `Ins`, `Del` |
+| Large / structural | `DEL-large`, `INS-large`, `INV`, `DUP` | `LargeIns`, `LargeDel`, `Inversion`, `Complex*` |
+| Other | `Unclassified` and anything else | anything else |
+
+The KI % matrix shows only `ki_pct`; the Results tab charts the groups per sample.
 
 ## Containers
 

@@ -32,6 +32,18 @@ def test_matrix(tmp_path):
     s = {(r[0], r[1]): r for r in (l.split("\t") for l in open(f"{d}/summary.tsv").read().split("\n")[1:] if l)}
     assert s[("CRISPRLungo", "B")][7:9] == ["1", "25.0"]
     assert s[("ALPINE", "B")][7] == "0"
+    c = [l.split("\t") for l in open(f"{d}/summary_classes.tsv").read().split("\n")[1:] if l]
+    g = {}
+    for t, sid, cat, _, n, _ in c: g[(t, sid, cat)] = g.get((t, sid, cat), 0) + int(n)
+    assert g[("ALPINE", "B", "Full knock-in")] == 6 and g[("ALPINE", "B", "Unedited")] == 2 and g[("ALPINE", "B", "Other")] == 2
+    assert g[("CRISPRLungo", "B", "Full knock-in")] == 1 and g[("CRISPRLungo", "B", "Partial knock-in")] == 1 and g[("CRISPRLungo", "B", "Unedited")] == 2
+    assert sum(v for (t, sid, _), v in g.items() if (t, sid) == ("CRISPRLungo", "B")) == int(s[("CRISPRLungo", "B")][4])
+
+def test_category_mapping():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("summarize", f"{ROOT}/src/summarize.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    want = {"HDR-CD19": 0, "Non-HDR-without-ITR": 1, "Unmodified-with-SNP": 2, "WT": 2, "DEL/INS-small": 3, "Sub": 3, "LargeIns": 4, "DEL/INS-large": 4, "INV": 4, "ComplexWithLargeMut": 4, "Unclassified": 5}
+    assert {c: m.CATEGORIES.index(m.category(c)) for c in want} == want
 
 def test_missing_output_is_na(tmp_path):
     d = str(tmp_path / "results" / "run1")

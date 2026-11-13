@@ -105,6 +105,11 @@ def test_results_are_read_per_analysis(server):
     os.makedirs(a / "meta"); json.dump({"sample_id": "A"}, open(a / "meta/A.json", "w"))
     r = get(f"{base}/api/results?analysis=run_one")
     assert r["matrix"] == [["tool", "A"], ["ALPINE", "1.5"]] and r["meta"]["A"]["sample_id"] == "A"
+    assert r["classes"] is None and r["reads"] == {}
+    (a / "summary_classes.tsv").write_text("tool\tsample_id\tcategory\tclass\treads\tpct\nALPINE\tA\tFull knock-in\tHDR\t3\t1.5\n")
+    os.makedirs(a / "data/stats", exist_ok=True); (a / "data/stats/A.tsv").write_text("sample_id\trun\traw_reads\tlen_pass\nA\tSRR1\t10\t8\n")
+    r = get(f"{base}/api/results?analysis=run_one")
+    assert r["classes"][0]["category"] == "Full knock-in" and r["reads"]["A"] == dict(raw_reads="10", len_pass="8")
     assert get(f"{base}/api/results?analysis=nope")["matrix"] is None
 
 def test_progress_counts_done_failed_and_cancelled(server):

@@ -44,7 +44,7 @@
 | `ALPINE/<sample>/`, `CRISPRLungo/<sample>/` | tool outputs |
 | `meta/<sample_id>.json` | run provenance |
 | `logs/<step>/` | one log per job |
-| `summary.tsv`, `summary_matrix.tsv` | KI % results; `summary.tsv` also carries `partial_reads`/`partial_pct` (insert present but below `ki_min_insert_frac`) and the full per-class breakdown in `notes` |
+| `summary.tsv`, `summary_matrix.tsv`, `summary_classes.tsv` | KI % results; `summary_classes.tsv` has read counts per tool class and outcome group (charted in the Results tab); `summary.tsv` also carries `partial_reads`/`partial_pct` (insert present but below `ki_min_insert_frac`) and the full per-class breakdown in `notes` |
 | `run.log`, `run_state.json` | console launch record |
 
 ## 4. Conventions

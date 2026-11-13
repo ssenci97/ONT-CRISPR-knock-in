@@ -12,6 +12,9 @@ OUT = RES = PARAM_YAML = SAMPLES_TSV = None
 PARAMS = dict()
 SHARED = dict(ki_min_insert_frac=0.8)
 COLS = ["tool", "sample_id", "condition", "reads_in", "reads_used", "ki_reads", "ki_pct", "partial_reads", "partial_pct", "metric", "notes"]
+CLASS_COLS = ["tool", "sample_id", "category", "class", "reads", "pct"]
+CATEGORIES = ["Full knock-in", "Partial knock-in", "Unedited", "Small indel", "Large / structural", "Other"]
+SMALL, LARGE = {"SUB", "INS", "DEL"}, {"LARGEINS", "LARGEDEL", "INVERSION", "INV", "DUP"}
 
 ###################################### helpers
 def log(m): print(f"[PYTHON-INFO] {m}", flush=True)
@@ -24,6 +27,15 @@ def yaml_io(p, a):
     if a.yaml_out: c[NAME] = {k: v for k, v in p.items() if k not in SHARED}; yaml.safe_dump(c, open(PARAM_YAML, "w"), sort_keys=False); log(f"params written to {PARAM_YAML} [{NAME}]")
     return p
 
+def category(c):
+    u = c.upper()
+    if u.startswith("NON-HDR"): return CATEGORIES[1]
+    if u.startswith("HDR"): return CATEGORIES[0]
+    if u.startswith("UNMODIFIED") or u == "WT": return CATEGORIES[2]
+    if u in SMALL or u.endswith("-SMALL"): return CATEGORIES[3]
+    if u in LARGE or u.endswith("-LARGE") or u.startswith("COMPLEX"): return CATEGORIES[4]
+    return CATEGORIES[5]
+
 ###################################### tool metrics
 def alpine(sample_id, d, p):
     f = f"{RES}/ALPINE/{sample_id}/{sample_id}_read_classification.txt"
@@ -35,7 +47,8 @@ def alpine(sample_id, d, p):
     n, k = sum(cnt.values()), sum(v for c, v in cnt.items() if c.upper().startswith("HDR"))
     part = sum(v for c, v in cnt.items() if c.upper().startswith("NON-HDR"))
     return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"ALPINE HDR class (transgene >={p['ki_min_insert_frac']:.0%} of insert, both homology arms validated) / classified reads",
-                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1]) if v))
+                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1]) if v),
+                classes=[(category(c), c, v) for c, v in cnt.items() if v])
 
 def union_len(spans):
     merged = []
@@ -55,11 +68,15 @@ def lungo(sample_id, d, p):
             re.findall(r"CAR_insert_\d+to\d+inSeq_(\d+)to(\d+)inRef", r.get("Integration_info") or ""))
     need = p["ki_min_insert_frac"] * d["insert_len"]
     cov = {rid: union_len(s) for rid, s in spans.items()}
-    cnt = {}
-    for c in cls.values(): cnt[c] = cnt.get(c, 0) + 1
+    cnt, grp = {}, {}
+    for rid, c in cls.items():
+        cnt[c] = cnt.get(c, 0) + 1
+        g = (CATEGORIES[0], f"{c} + insert >={p['ki_min_insert_frac']:.0%}") if cov[rid] >= need else (CATEGORIES[1], f"{c} + insert <{p['ki_min_insert_frac']:.0%}") if cov[rid] else (category(c), c)
+        grp[g] = grp.get(g, 0) + 1
     n, k, part = len(cov), sum(c >= need for c in cov.values()), sum(0 < c < need for c in cov.values())
     return dict(reads_used=n, ki_reads=k, ki_pct=pct(k, n), partial_reads=part, partial_pct=pct(part, n), metric=f"reads whose CAR_insert integration covers >={p['ki_min_insert_frac']:.0%} of the insert (union of blocks) / classified reads",
-                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])))
+                notes=", ".join(f"{c} {pct(v, n)}%" for c, v in sorted(cnt.items(), key=lambda x: -x[1])),
+                classes=[(g, c, v) for (g, c), v in grp.items()])
 
 TOOLS = {"ALPINE": alpine, "CRISPRLungo": lungo}
 
@@ -80,6 +97,11 @@ def main():
         r.update(TOOLS[tool](sample_id, d, p) or dict(notes="missing output")); out.append(r)
     with open(f"{RES}/summary.tsv", "w") as fh:
         w = csv.DictWriter(fh, COLS, delimiter="\t", extrasaction="ignore"); w.writeheader(); [w.writerow({k: "" if r.get(k) is None else r.get(k, "") for k in COLS}) for r in out]
+    with open(f"{RES}/summary_classes.tsv", "w") as fh:
+        fh.write("\t".join(CLASS_COLS) + "\n")
+        for r in out:
+            for g, c, v in sorted(r.get("classes", []), key=lambda x: (CATEGORIES.index(x[0]), -x[2])):
+                fh.write("\t".join(map(str, [r["tool"], r["sample_id"], g, c, v, pct(v, r["reads_used"])])) + "\n")
     ki = {(r["tool"], r["sample_id"]): r.get("ki_pct") for r in out}
     mx = "tool\t" + "\t".join(SAMPLES) + "\n" + "".join(t + "\t" + "\t".join("NA" if ki[(t, s)] is None else str(ki[(t, s)]) for s in SAMPLES) + "\n" for t in TOOLS)
     open(f"{RES}/summary_matrix.tsv", "w").write(mx)
