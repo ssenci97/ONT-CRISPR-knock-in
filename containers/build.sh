@@ -96,18 +96,7 @@ pull() {
   log "pulling $ref"
   log "into $KV_ROOT/$sif (cache $SINGULARITY_CACHEDIR, ${avail} GB free here)"
   [ "$avail" -lt 12 ] && log "!! only ${avail} GB free; the pull needs about 11 GB (cache + sif)"
-  local procs="${SLURM_CPUS_ON_NODE:-$(nproc)}" sqmem="${KV_SQUASH_MEM:-1G}" real
-  real="$(PATH="$PATH:/usr/sbin:/sbin:/usr/local/sbin" command -v mksquashfs || true)"
-  if [ -n "$real" ]; then
-    mkdir -p "$SINGULARITY_TMPDIR/bin"
-    printf '#!/bin/sh\nexec %s "$@" -processors %s -mem %s\n' "$real" "$procs" "$sqmem" > "$SINGULARITY_TMPDIR/bin/mksquashfs"
-    chmod +x "$SINGULARITY_TMPDIR/bin/mksquashfs"
-    export PATH="$SINGULARITY_TMPDIR/bin:$PATH"
-    log "mksquashfs capped: $procs procs, $sqmem (wrapper around $real)"
-  else
-    log "!! mksquashfs not found on PATH; not capped -- if killed, rerun under srun --mem=16G"
-  fi
-  "$app" pull --force "$KV_ROOT/$sif" "docker://$ref"
+  "$app" pull --force "$KV_ROOT/$sif" "docker://$ref" || { log "pull failed; if killed while creating squashfs, give it memory: srun -p THIN --mem=16G -c 4 --time=00:30:00 containers/build.sh pull"; exit 1; }
   [ -s "$KV_ROOT/$sif" ] || { log "pull reported success but $sif is missing or empty"; exit 1; }
   log "ok: $(du -h "$KV_ROOT/$sif" | cut -f1) at $KV_ROOT/$sif"
   log "now start the console (python3 src/gui_serve.py) or run: python3 src/pipeline.py <analysis>"

@@ -104,7 +104,7 @@ Each analysis freezes its own copy of these values in `results/<analysis>/inputs
 
 | Step | Where | Command |
 |---|---|---|
-| 1. get the image | cluster login node, repo root | `containers/build.sh pull` |
+| 1. get the image | cluster, repo root | `srun -p THIN --mem=16G -c 4 --time=00:30:00 containers/build.sh pull` |
 | 2. start the console | same shell | `python3 src/gui_serve.py` |
 | 3. node name | same shell | `hostname -f` |
 | 4. tunnel | laptop | `ssh -J <user>@<login-host> -L 8000:127.0.0.1:8000 -N <user>@<node>` |

@@ -66,7 +66,7 @@
 
 | Step | Command |
 |---|---|
-| image | `containers/build.sh pull` |
+| image | `srun -p THIN --mem=16G -c 4 --time=00:30:00 containers/build.sh pull` |
 | console (auto-loads singularity) | `python3 src/gui_serve.py` |
 | tests (optional, ~30 s) | `python3 -m pytest -q tests` |
 
