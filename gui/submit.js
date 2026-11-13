@@ -228,7 +228,8 @@ function status(text, isError) {
 async function init() {
   state.schema = await (await fetch("/api/schema")).json();
   state.params = await (await fetch("/api/params")).json();
-  state.examples = (await (await fetch("/api/examples")).json()).examples || [];
+  const exr = await fetch("/api/examples");
+  state.examples = exr.ok ? (await exr.json()).examples || [] : [];
   const sel = $("#example");
   sel.append(new Option("Example: —", ""));
   for (const e of state.examples) sel.append(new Option(`${e.short} — ${e.title}`, e.name));
@@ -237,6 +238,7 @@ async function init() {
   renderInfo();
   toggleInfo(store.get("kv_info") !== "0");
   fill([]);
+  if (!exr.ok) status("No examples: this console server is older than the page (/api/examples not found). Stop it (ctrl-c) and start python3 src/gui_serve.py again.", true);
 }
 
 async function loadSaved() {
