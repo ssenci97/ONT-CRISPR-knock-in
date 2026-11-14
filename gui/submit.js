@@ -509,17 +509,35 @@ function togglePerf(on) {
   if (on) refreshPerf();
 }
 
+function stack(total, used, ours, label, cls = "mini") {
+  const w = el("span", cls), b = el("span", "bar"), o = el("i", "ours"), x = el("i", "other");
+  const mine = ours || 0, all = Math.max(used || 0, mine), pct = (v) => (total ? Math.max(0, Math.min(100, (100 * v) / total)) : 0);
+  o.style.width = `${pct(mine)}%`; x.style.width = `${Math.max(0, pct(all) - pct(mine))}%`;
+  b.append(o, x); w.append(b, el("em", null, label));
+  return w;
+}
+
+function oursLegend() {
+  const l = el("p", "ours-legend");
+  const sw = (cls, text) => { const s = el("span", "lg"), i = el("i", cls); s.append(i, document.createTextNode(text)); return s; };
+  l.append(sw("ours", "◆ our running jobs"), sw("other", "other users"), sw("free", "free"));
+  return l;
+}
+
 function renderParts(c) {
   const box = $("#perf-parts");
   box.textContent = "";
   if (!c.available) { box.append(el("p", "muted", "sinfo not available here: start the console on the cluster login node.")); return; }
+  const o = c.ours || { jobs: 0 };
+  box.append(el("p", o.jobs ? "ours-now" : "muted", o.jobs ? `◆ Our running jobs now: ${o.jobs} job(s) · ${pfmt(o.cpus)} CPUs · ${gb(o.mem_mb)} on ${o.nodes.join(", ")} (${o.analyses.join(", ")})` : "None of our jobs is running right now."), oursLegend());
   box.append(grid(["Partition", "Nodes", "States", "CPUs allocated", "Memory allocated", "Jobs run / wait", "Waiting CPUs", "Fit one analysis"],
-    c.partitions.map((p) => [p.partition, pfmt(p.nodes), Object.entries(p.states).map(([k, v]) => `${v} ${k}`).join(" · "),
-      mini(p.cpus ? (100 * p.alloc) / p.cpus : null, `${pfmt(p.alloc)} / ${pfmt(p.cpus)}`, [0, 85]), mini(p.mem_mb ? (100 * p.alloc_mb) / p.mem_mb : null, `${gb(p.alloc_mb)} / ${gb(p.mem_mb)}`, [0, 85]),
+    c.partitions.map((p) => [p.ours_jobs ? { text: `◆ ${p.partition} · ours ${p.ours_jobs}`, cls: "ours-cell" } : p.partition, pfmt(p.nodes), Object.entries(p.states).map(([k, v]) => `${v} ${k}`).join(" · "),
+      stack(p.cpus, p.alloc, p.ours_cpus, `${pfmt(p.alloc)} / ${pfmt(p.cpus)}${p.ours_cpus ? ` · ours ${pfmt(p.ours_cpus)}` : ""}`),
+      stack(p.mem_mb, p.alloc_mb, p.ours_mb, `${gb(p.alloc_mb)} / ${gb(p.mem_mb)}${p.ours_mb ? ` · ours ${gb(p.ours_mb)}` : ""}`),
       `${pfmt(p.running)} / ${pfmt(p.pending)}`, pfmt(p.pending_cpus), p.fit ? `${p.fit} node(s)` : { text: "none now", cls: "state-bad" }])));
 }
 
-function renderNodes(c, ours) {
+function renderNodes(c) {
   const box = $("#perf-nodes");
   box.textContent = "";
   if (!c.available) { box.append(el("p", "muted", "—")); return; }
@@ -529,15 +547,14 @@ function renderNodes(c, ours) {
     const blk = el("div", "part-block"), g = el("div", "nodes");
     blk.append(el("h4", null, `${p} · ${nodes.length} node(s)`));
     for (const n of nodes) {
-      const st = n.state.replace(/[*~#!%$@^-]+$/, ""), d = el("div", `node${n.fits_budget ? " fit" : ""}${/down|drain|fail|maint|unk/.test(st) ? " down" : ""}${ours.has(n.node) ? " ours" : ""}`);
-      d.title = `${n.node} (${n.partitions.join(", ")}) ${n.state}: ${n.alloc}/${n.cpus} CPUs allocated, ${gb(n.alloc_mb)} / ${gb(n.mem_mb)} memory, load ${pfmt(n.load, 1)}`;
-      const cb = el("div", "bar"), ci = el("i"), mb = el("div", "bar"), mi = el("i");
-      ci.style.width = `${n.cpus ? (100 * n.alloc) / n.cpus : 0}%`; mi.style.width = `${n.mem_mb ? (100 * n.alloc_mb) / n.mem_mb : 0}%`; mi.className = "run";
-      cb.append(ci); mb.append(mi);
+      const mine = (n.ours_jobs || []).length, st = n.state.replace(/[*~#!%$@^-]+$/, ""), d = el("div", `node${n.fits_budget ? " fit" : ""}${/down|drain|fail|maint|unk/.test(st) ? " down" : ""}${mine ? " ours" : ""}`);
+      d.title = `${n.node} (${n.partitions.join(", ")}) ${n.state}: ${n.alloc}/${n.cpus} CPUs allocated, ${gb(n.alloc_mb)} / ${gb(n.mem_mb)} memory, load ${pfmt(n.load, 1)}${mine ? `\nours: ${n.ours_jobs.join(", ")}` : ""}`;
       const l1 = el("div", "lab"), l2 = el("div", "lab");
       l1.append(el("span", null, "CPU"), el("span", null, `${n.idle} free / ${n.cpus}`));
       l2.append(el("span", null, "MEM"), el("span", null, `${gb(n.mem_mb - n.alloc_mb)} free`));
-      d.append(el("b", null, n.node), el("span", "st", `${st} · load ${pfmt(n.load, 1)}`), cb, l1, mb, l2);
+      d.append(el("b", null, n.node), el("span", "st", `${st} · load ${pfmt(n.load, 1)}`));
+      if (mine) d.append(el("span", "ours-line", `◆ ours: ${mine} job(s) · ${n.ours_cpus} CPUs · ${gb(n.ours_mb)}`));
+      d.append(stack(n.cpus, n.alloc, n.ours_cpus, "", "nbar"), l1, stack(n.mem_mb, n.alloc_mb, n.ours_mb, "", "nbar"), l2);
       g.append(d);
     }
     blk.append(g); box.append(blk);
@@ -581,7 +598,7 @@ async function refreshPerf() {
   $("#perf-at").textContent = `updated ${p.at}`;
   $("#perf-budget").textContent = `${p.cluster.budget.cpus} CPUs + ${gb(p.cluster.budget.mem_mb)} free`;
   renderParts(p.cluster);
-  renderNodes(p.cluster, new Set(p.runs.jobs.filter((j) => ["RUNNING", "PENDING"].includes(j.state) && j.node).map((j) => j.node)));
+  renderNodes(p.cluster);
   renderRuns(p.runs);
 }
 

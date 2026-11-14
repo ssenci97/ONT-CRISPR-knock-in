@@ -308,6 +308,17 @@ def when(v):
     try: return datetime.datetime.fromisoformat(v)
     except (TypeError, ValueError): return None
 
+def ours_running():
+    """Our RUNNING jobs from squeue, with the cores and memory each holds on its node."""
+    rows = {r["jobid"]: dict(r, analysis=a["name"]) for a in analyses() for r in pipeline.read_jobs(a["name"], ROOT) if r.get("jobid")}
+    ids, out = list(rows), []
+    for i in range(0, len(ids), 200):
+        for l in pipeline.sh(["squeue", "-h", "-j", ",".join(ids[i:i + 200]), "-o", "%i|%T|%P|%N|%C|%m"]):
+            f = [x.strip() for x in l.split("|")]
+            if len(f) < 6 or f[1] != "RUNNING" or f[0] not in rows: continue
+            out.append(dict(jobid=f[0], analysis=rows[f[0]]["analysis"], key=rows[f[0]]["key"], partition=f[2].rstrip("*"), node=f[3], cpus=num(f[4], int) or 0, mem_mb=round(pipeline.mb(f[5]))))
+    return out
+
 def cluster():
     nodes = {}
     for l in pipeline.sh(["sinfo", "-N", "-h", "-O", NODE_FMT]):
@@ -316,7 +327,10 @@ def cluster():
         a, i, o, t = (num(x, int) or 0 for x in f[3].split("/"))
         n = nodes.setdefault(f[0], dict(node=f[0], partitions=[], state=f[2], cpus=t, alloc=a, idle=i, other=o, mem_mb=num(f[4], int) or 0, alloc_mb=int(num(f[5]) or 0), load=num(f[6]) if len(f) > 6 else None))
         if f[1].rstrip("*") not in n["partitions"]: n["partitions"].append(f[1].rstrip("*"))
+    mine = ours_running()
     for n in nodes.values():
+        here = [j for j in mine if j["node"] == n["node"]]
+        n.update(ours_cpus=sum(j["cpus"] for j in here), ours_mb=sum(j["mem_mb"] for j in here), ours_jobs=[f"{j['analysis']}:{j['key']}" for j in here])
         n["fits_budget"] = n["state"].rstrip("*~#!%$@^-") in ("idle", "mix", "mixed") and n["idle"] >= pipeline.BUDGET_CPUS and n["mem_mb"] - n["alloc_mb"] >= pipeline.BUDGET_MEM_MB
     q = {}
     for l in pipeline.sh(["squeue", "-h", "-o", "%P|%T|%C"]):
@@ -327,13 +341,17 @@ def cluster():
     parts = {}
     for n in nodes.values():
         for p in n["partitions"]:
-            d = parts.setdefault(p, dict(partition=p, nodes=0, states={}, cpus=0, alloc=0, mem_mb=0, alloc_mb=0, fit=0))
+            d = parts.setdefault(p, dict(partition=p, nodes=0, states={}, cpus=0, alloc=0, mem_mb=0, alloc_mb=0, fit=0, ours_cpus=0, ours_mb=0, ours_jobs=0))
             st = n["state"].rstrip("*~#!%$@^-")
             d["nodes"] += 1; d["states"][st] = d["states"].get(st, 0) + 1; d["fit"] += n["fits_budget"]
             for k in ("cpus", "alloc", "mem_mb", "alloc_mb"): d[k] += n[k]
     for p, d in parts.items(): d.update(q.get(p, dict(running=0, pending=0, pending_cpus=0)))
+    for j in mine:
+        d = parts.get(j["partition"])
+        if d: d["ours_cpus"] += j["cpus"]; d["ours_mb"] += j["mem_mb"]; d["ours_jobs"] += 1
     return dict(nodes=sorted(nodes.values(), key=lambda n: (n["partitions"][0], n["node"])), partitions=sorted(parts.values(), key=lambda d: d["partition"]),
-                budget=dict(cpus=pipeline.BUDGET_CPUS, mem_mb=pipeline.BUDGET_MEM_MB), available=bool(nodes))
+                budget=dict(cpus=pipeline.BUDGET_CPUS, mem_mb=pipeline.BUDGET_MEM_MB), available=bool(nodes),
+                ours=dict(jobs=len(mine), cpus=sum(j["cpus"] for j in mine), mem_mb=sum(j["mem_mb"] for j in mine), nodes=sorted({j["node"] for j in mine}), analyses=sorted({j["analysis"] for j in mine})))
 
 def job_perf():
     rows = [dict(r, analysis=a["name"]) for a in analyses() for r in pipeline.read_jobs(a["name"], ROOT) if r.get("jobid")]

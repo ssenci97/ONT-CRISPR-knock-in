@@ -161,7 +161,7 @@ The screenshot below is a finished run of the example data.
 | resume | the same name again: done jobs are kept, the rest (and everything downstream) is resubmitted |
 | stop | `pipeline.py <name> --stop`: cancels this run's jobs (from `jobs.tsv` and any queued job tagged `kv:<name>:`), also while a launch is still submitting; re-checks up to 3 times and lists any job that survived |
 | stop all | every live job of every analysis |
-| **Performance** (top right) | dark page: partitions and nodes from `sinfo`/`squeue` (counts only, no user data; ring = node with 32 cores + 64 GB free, dot = node running our jobs), then our jobs from `sacct`: core-hours, CPU efficiency, memory and time used vs asked, queue wait, out-of-memory/timeouts, per tool, per analysis and per job; refreshes every 30 s; `#perf` in the URL opens it directly |
+| **Performance** (top right) | dark page: partitions and nodes from `sinfo`/`squeue` (counts only, no other users' data; green ring = node with 32 cores + 64 GB free). **What our running analyses hold is highlighted**: a ◆ summary line (jobs, CPUs, memory, nodes, analyses), ◆ on the partitions we use, an amber outline and a ◆ line on our nodes, and in every CPU/memory bar the part held by our running jobs is striped amber, next to other users' grey and the free track (legend on the page), then our jobs from `sacct`: core-hours, CPU efficiency, memory and time used vs asked, queue wait, out-of-memory/timeouts, per tool, per analysis and per job; refreshes every 30 s; `#perf` in the URL opens it directly |
 | launch lock | one Run at a time; the button stays disabled while `sbatch` calls are running |
 
 ### Results

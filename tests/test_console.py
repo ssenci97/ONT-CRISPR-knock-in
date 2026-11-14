@@ -272,3 +272,16 @@ def test_analysis_level_metadata_is_not_a_sample(server):
     json.dump({"sample_id": "A", "steps": {}}, open(m / "A.json", "w")); json.dump({"analysis": "run_one", "steps": {"refs": {"perf": {"jobid": "1"}}}}, open(m / "_analysis.json", "w"))
     r = get(f"{base}/api/results?analysis=run_one")
     assert list(r["meta"]) == ["A"] and r["analysis_meta"]["steps"]["refs"]["perf"]["jobid"] == "1"
+
+def test_perf_marks_what_our_running_jobs_hold_on_nodes_and_partitions(server):
+    base, tmp = server
+    (tmp / "bin/sinfo").write_text(FAKE_SINFO); (tmp / "bin/sinfo").chmod(0o755)
+    post(f"{base}/api/run", analysis="run_one")
+    ids = jobs_tsv(tmp)
+    (tmp / "bin/squeue").write_text(f"#!/bin/sh\nprintf '{ids['alpine_A']}|RUNNING|GENOA|genoa01|16|8000M\\n{ids['lungo_A']}|PENDING|GENOA||16|8000M\\n999999|RUNNING|GENOA|genoa02|64|100G\\n'\n")
+    c = get(f"{base}/api/perf")["cluster"]
+    n = {x["node"]: x for x in c["nodes"]}; parts = {x["partition"]: x for x in c["partitions"]}
+    assert (n["genoa01"]["ours_cpus"], n["genoa01"]["ours_mb"], n["genoa01"]["ours_jobs"]) == (16, 8000, ["run_one:alpine_A"])
+    assert n["genoa02"]["ours_cpus"] == 0 and n["thin001"]["ours_jobs"] == []
+    assert (parts["GENOA"]["ours_cpus"], parts["GENOA"]["ours_jobs"], parts["THIN"]["ours_jobs"]) == (16, 1, 0)
+    assert c["ours"] == dict(jobs=1, cpus=16, mem_mb=8000, nodes=["genoa01"], analyses=["run_one"])
