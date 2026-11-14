@@ -111,6 +111,18 @@ pre.cmd { background: var(--fill); border-radius: 8px; padding: 12px 14px; font-
 .badge.cancelled, .badge.stopped { background: #f6ecd2; color: #7a5a00; }
 .badge.waiting, .badge.idle { background: var(--fill); color: var(--muted); }
 #run-state { margin-top: 4px; font-size: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.group-strip { margin-top: 14px; display: grid; gap: 6px; }
+.group-note { margin: 0 0 2px; font-size: 15px; }
+.member { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; text-align: left; border: 0; border-radius: 10px; padding: 8px 12px; background: var(--fill); color: var(--fg); font: 15px var(--font); cursor: pointer; }
+.member[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--fg); }
+.member .member-name { font-weight: 600; min-width: 180px; }
+.member .bar-wrap { flex: 1; min-width: 200px; margin-top: 0; }
+.member .bar { background: var(--card); box-shadow: inset 0 0 0 1px var(--hair); }
+.member:focus-visible, button.chip:focus-visible { outline: 3px solid rgba(0,113,227,.55); outline-offset: 2px; }
+.group-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+button.chip { border: 0; font: 14px var(--font); }
+button.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.member-head { font-size: 16px; font-weight: 600; margin: 16px 0 6px; }
 
 .bar-wrap { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .bar { flex: 1; height: 10px; border-radius: 5px; background: var(--fill); overflow: hidden; display: flex; }

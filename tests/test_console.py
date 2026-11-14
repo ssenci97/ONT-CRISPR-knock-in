@@ -106,7 +106,28 @@ def test_all_examples_launch_one_analysis_each(server):
         assert (a / "inputs/samples.tsv").read_text() == (src / "samples.tsv").read_text()
         assert json.load(open(a / "inputs/analysis.json"))["source"] == f"configs/examples/{n}"
         assert all(jobs_tsv(tmp, a.name).values())
+        assert json.load(open(a / "run_state.json"))["group"] == "ex"
     assert (tmp / "configs/samples.tsv").read_text() == SHEET
+    assert body["group"] == "ex" and body["members"] == ["ex_arcus", "ex_nitulescu"]
+    for n in body["members"]:
+        g = get(f"{base}/api/status?analysis={n}")["group"]
+        assert [m["name"] for m in g] == ["ex_arcus", "ex_nitulescu"] and all(m["group"] == "ex" and m["progress"]["total"] for m in g)
+    assert {a["name"]: a["group"] for a in get(f"{base}/api/status")["analyses"]} == {"ex_arcus": "ex", "ex_nitulescu": "ex"}
+
+def test_group_results_list_every_member_and_each_keeps_its_own_report(server):
+    base, tmp = server
+    post(f"{base}/api/run", analysis="ex", examples=["example_arcus", "example_nitulescu"])
+    (tmp / "results/ex_arcus/summary_matrix.tsv").write_text("tool\ta1\nALPINE\t2.0\n")
+    (tmp / "results/ex_nitulescu/summary_matrix.tsv").write_text("tool\tn1\nALPINE\t7.0\n")
+    ra, rn = (get(f"{base}/api/results?analysis=ex_{s}") for s in ("arcus", "nitulescu"))
+    assert ra["matrix"] == [["tool", "a1"], ["ALPINE", "2.0"]] and rn["matrix"] == [["tool", "n1"], ["ALPINE", "7.0"]]
+    assert ra["group"] == rn["group"] == [dict(name="ex_arcus", done=True, group="ex"), dict(name="ex_nitulescu", done=True, group="ex")]
+
+def test_single_run_has_no_group(server):
+    base, tmp = server
+    post(f"{base}/api/run", analysis="run_one")
+    assert get(f"{base}/api/status?analysis=run_one")["group"] == [] and get(f"{base}/api/results?analysis=run_one")["group"] == []
+    assert "group" not in json.load(open(tmp / "results/run_one/run_state.json"))
 
 def test_unknown_example_and_live_run_refuse_all(server):
     base, tmp = server

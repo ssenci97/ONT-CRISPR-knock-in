@@ -1,5 +1,5 @@
 const $ = (s, r = document) => r.querySelector(s);
-const state = { schema: null, params: {}, rows: [], examples: [], example: "" };
+const state = { schema: null, params: {}, rows: [], examples: [], example: "", launched: null };
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -328,7 +328,7 @@ function fillPickers(list, running) {
     const keep = sel.value;
     sel.textContent = "";
     sel.append(new Option(sel.id === "pick" ? "—" : "Analysis", ""));
-    for (const a of list) sel.append(new Option(`${a.name}${a.done ? " ✓" : ""}${a.name === running ? " (running)" : ""}`, a.name));
+    for (const a of list) sel.append(new Option(`${a.name}${a.group ? ` (group ${a.group})` : ""}${a.done ? " ✓" : ""}${a.name === running ? " (running)" : ""}`, a.name));
     sel.value = keep;
   }
 }
@@ -377,12 +377,14 @@ async function refreshStatus() {
   const name = currentAnalysis();
   const s = await (await fetch(`/api/status?analysis=${encodeURIComponent(name)}`)).json();
   fillPickers(s.analyses || [], s.running ? (s.state || {}).analysis : null);
+  if (name && [...$("#pick").options].some((o) => o.value === name)) $("#pick").value = name;
   $("#runtime").textContent = describeRuntime(s.runtime);
   const st = s.state || {}, rs = $("#run-state");
   rs.textContent = "";
   rs.append(badge(s.outcome));
   if (st.started_at) rs.append(el("strong", null, st.analysis), el("span", "muted", `started ${st.started_at} · ${(st.samples || []).length} samples${st.node ? ` · node ${st.node}` : ""} · results/${st.analysis}/`));
   else if (name) rs.append(el("strong", null, name));
+  renderGroup(s.group || [], name);
   const ov = $("#overall");
   ov.hidden = !s.progress;
   if (s.progress) {
@@ -399,6 +401,24 @@ async function refreshStatus() {
   return s;
 }
 
+const memberBar = (m) => ({ done: "ok", failed: "bad", running: "run" })[m.outcome] || "low";
+
+function renderGroup(members, current) {
+  const box = $("#group"), errs = Object.entries((state.launched || {}).errors || {});
+  box.textContent = "";
+  box.hidden = members.length < 2 && !errs.length;
+  if (box.hidden) return;
+  if (members.length) box.append(el("p", "muted group-note", `Group ${members[0].group}: ${members.length} analyses launched together. Pick one to follow its steps below.`));
+  for (const m of members) {
+    const b = el("button", "member"), p = m.progress, on = m.name === current;
+    b.type = "button"; b.setAttribute("aria-pressed", String(on));
+    b.append(badge(m.outcome), el("span", "member-name", m.name), bar([[memberBar(m), p ? p.pct : 0]], p ? `${p.done} of ${p.total} jobs` : "no jobs"));
+    b.addEventListener("click", () => { $("#analysis").value = m.name; renderRunNote(); refreshStatus(); });
+    box.append(b);
+  }
+  for (const [n, e] of errs) { const r = el("div", "member"); r.append(badge("failed", "not started"), el("span", "member-name", n), el("span", null, e.join("; "))); box.append(r); }
+}
+
 async function launch() {
   const analysis = currentAnalysis(), rs = $("#run-state");
   if (!analysis) { rs.textContent = ""; rs.append(badge("failed", "name required")); return; }
@@ -409,11 +429,9 @@ async function launch() {
   try { res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis, examples }) }); body = await res.json(); }
   finally { btn.disabled = false; }
   if (!res.ok) { rs.textContent = ""; rs.append(badge("failed", "not started"), el("span", null, (body.errors || ["failed"]).join("; "))); return; }
-  if (!body.started) return refreshStatus();
-  $("#analysis").value = body.analysis;
+  state.launched = body.started ? { group: body.group, errors: body.errors || {} } : null;
+  if (body.started) $("#analysis").value = body.analysis;
   await refreshStatus();
-  rs.append(el("span", "muted", `launched ${body.started.map((x) => x.analysis).join(", ")} — switch with Existing`));
-  for (const [n, errs] of Object.entries(body.errors || {})) rs.append(badge("failed", `${n} not started`), el("span", null, errs.join("; ")));
 }
 
 const pfmt = (v, d = 0) => (v === null || v === undefined ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -816,15 +834,34 @@ function downloadTsv() {
 
 async function refreshResults() {
   const name = $("#pick-results").value || currentAnalysis();
-  const r = await (await fetch(`/api/results?analysis=${encodeURIComponent(name)}`)).json();
-  const m = $("#matrix");
+  const getResults = async (n) => (await fetch(`/api/results?analysis=${encodeURIComponent(n)}`)).json();
+  const r = await getResults(name);
+  const pr = $("#pick-results");
+  if (name && [...pr.options].some((o) => o.value === name)) pr.value = name;
+  const m = $("#matrix"), grp = r.group || [];
   m.textContent = "";
-  if (!name || !r.matrix) m.append(el("p", "muted", "—"));
-  else {
-    const t = table(r.matrix[0], r.matrix.slice(1));
+  const matrix = (mx) => {
+    const t = table(mx[0], mx.slice(1));
     t.querySelectorAll("tbody td:not(:first-child)").forEach((td) => td.classList.add("num"));
-    m.append(t);
-  }
+    return t;
+  };
+  if (grp.length > 1) {
+    const chips = el("div", "group-pick");
+    chips.append(el("span", "ctl-lab inline", `Group ${grp[0].group}, charts and samples for:`));
+    for (const g of grp) {
+      const b = el("button", "chip", `${g.done ? "✓" : "○"} ${g.name} · ${g.done ? "report ready" : "no report yet"}`);
+      b.type = "button"; b.setAttribute("aria-pressed", String(g.name === name));
+      b.addEventListener("click", () => { pr.value = g.name; refreshResults(); });
+      chips.append(b);
+    }
+    m.append(chips);
+    const all = await Promise.all(grp.map((g) => (g.name === name ? r : getResults(g.name))));
+    grp.forEach((g, i) => {
+      m.append(el("h4", "member-head", g.name));
+      m.append(all[i].matrix ? matrix(all[i].matrix) : el("p", "muted", `No report yet: open ${g.name} in the Run tab to see its steps.`));
+    });
+  } else if (!name || !r.matrix) m.append(el("p", "muted", "—"));
+  else m.append(matrix(r.matrix));
   CH.r = r; renderControls(); renderChart();
   const box = $("#meta");
   box.textContent = "";

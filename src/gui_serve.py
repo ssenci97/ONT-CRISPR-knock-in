@@ -90,7 +90,7 @@ def analyses():
             except ValueError: continue
             st = json.load(open(run_state(n))) if os.path.exists(run_state(n)) else {}
             out.append(dict(name=n, created_at=d.get("created_at"), samples=d.get("samples", []),
-                            started_at=st.get("started_at"), done=os.path.exists(f"{RESULTS}/{n}/summary_matrix.tsv")))
+                            started_at=st.get("started_at"), done=os.path.exists(f"{RESULTS}/{n}/summary_matrix.tsv"), group=st.get("group")))
     return out
 
 def save(samples):
@@ -160,7 +160,7 @@ def preflight(need_sheet):
     if not rt["apptainer"]: return "singularity not on PATH (module load singularity before starting the console)"
     return None
 
-def launch(name, src=None):
+def launch(name, src=None, group=None):
     rt = runtime()
     try: a_dir, new, errs = analysis.create(name, ROOT, src)
     except ValueError as e: return None, str(e)
@@ -178,6 +178,7 @@ def launch(name, src=None):
               engine=rt["engine"], image=rt["sif"], new=new, samples=json.load(open(f"{a_dir}/inputs/analysis.json"))["samples"],
               submitted=sum(bool(r["jobid"]) for r in pipeline.read_jobs(name, ROOT)), node=next((r.get("node") for r in pipeline.read_jobs(name, ROOT) if r.get("node")), ""))
     if src: st["source"] = os.path.relpath(src, ROOT)
+    if group: st["group"] = group
     json.dump(st, open(run_state(name), "w"), indent=2)
     log(f"{'started' if new else 'resumed'} analysis {name}, {st['submitted']} job(s) submitted ({st['mode']})" + (f" from {st['source']}" if src else ""))
     return st, None
@@ -200,11 +201,11 @@ def start_locked(name, wanted):
     started, errors = [], {}
     for w in wanted:
         n = f"{name}_{known[w]['short']}"
-        st, e = launch(n, f"{EXAMPLES}/{w}")
+        st, e = launch(n, f"{EXAMPLES}/{w}", name)
         if st: started.append(st)
         else: errors[n] = e if isinstance(e, list) else [e]
     if not started: return None, [f"{n}: {m}" for n, ms in errors.items() for m in ms]
-    return dict(analysis=started[0]["analysis"], started=started, errors=errors), None
+    return dict(analysis=started[0]["analysis"], group=name, members=[s["analysis"] for s in started], started=started, errors=errors), None
 
 def stop_run(name):
     try: r = pipeline.stop(name, ROOT)
@@ -267,6 +268,14 @@ def outcome(name, running, steps, rows):
     if states & {"failed", "cancelled"}: return "failed"
     return "stopped" if rows or last_section(name).strip() else "idle"
 
+def members(name):
+    al = analyses(); g = next((a["group"] for a in al if a["name"] == name), None)
+    return [a for a in al if g and a["group"] == g]
+
+def member_state(name):
+    rows, sl = job_states(name); live = any(sl.get(r["jobid"]) in LIVE for r in rows); steps = step_state(name, rows, sl)
+    return dict(name=name, outcome=outcome(name, live, steps, rows), progress=progress(steps), running=live)
+
 def status(name):
     st = read_state(name) if name else {}
     rows, sl = job_states(name) if name else ([], {})
@@ -274,7 +283,8 @@ def status(name):
     steps = step_state(name, rows, sl) if name else []
     return dict(runtime=runtime(), analyses=analyses(), analysis=name, state=st, running=bool(live), outcome=outcome(name, bool(live), steps, rows) if name else "idle",
                 progress=progress(steps), queue=queue(live), steps=steps,
-                node_log=tail(f"{RESULTS}/{name}/logs/node_pick.log", 20) if name else "", log=tail(run_log(name)) if name else "")
+                node_log=tail(f"{RESULTS}/{name}/logs/node_pick.log", 20) if name else "", log=tail(run_log(name)) if name else "",
+                group=[dict(member_state(a["name"]), group=a["group"]) for a in members(name)] if name else [])
 
 ###################################### performance
 NODE_FMT = "NodeList:40,Partition:24,StateCompact:12,CPUsState:24,Memory:14,AllocMem:14,CPUsLoad:10"
@@ -370,8 +380,9 @@ def path_info(p):
     return out
 
 def results(name):
-    out = dict(matrix=None, rows=[], classes=None, reads={}, meta={})
+    out = dict(matrix=None, rows=[], classes=None, reads={}, meta={}, group=[])
     if not name: return out
+    out["group"] = [dict(name=a["name"], done=a["done"], group=a["group"]) for a in members(name)]
     a = f"{RESULTS}/{name}"
     m = f"{a}/summary_matrix.tsv"
     if os.path.exists(m): out["matrix"] = [l.split("\t") for l in open(m).read().strip().splitlines()]
