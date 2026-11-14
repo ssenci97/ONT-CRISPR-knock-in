@@ -53,7 +53,8 @@
 |---|---|
 | parameters | `configs/param_configs.yaml`, one section per step + `shared:`; frozen per analysis |
 | SLURM | one job per step per sample; no arrays; chained with `--dependency=afterok` |
-| agency profile | `--profile` / Run tab **Agency**: `savemem` (default; 1 node, ≤ half of it and ≤ 32 cores / 64 GB), `processive` (≤ 2 nodes of one partition, ≤ half of each), `custom` (`--nodes`, 1–4 ticked nodes, ≤ half of each). Ceilings, not targets: lanes = min(fit, parallel width); a further node only when the width does not fit |
+| agency profile | `--profile` / Run tab **Agency**: `savemem` (default; 1 node, ≤ half of it and ≤ 32 cores / 64 GB), `processive` (≤ 2 nodes of one partition, ≤ half of each), `custom` (`--nodes`, 1–4 ticked nodes, ≤ half of each). Ceilings, not targets; a further node only when the jobs that can run at once do not fit |
+| launch plan | DAG-aware: ceiling split into tokens (1 core + equal memory share); each job holds max(cores, memory share) tokens of one node, starts as early as its inputs and tokens allow (longest remaining chain first) and waits `afterany` only for its tokens' previous holders, so the ceiling holds whatever the run times; plan in `logs/node_pick.log` |
 | performance metadata | JSON next to the sample metadata: `kv_job.sh` writes `perf` (`jobid node partition asked used started ended`) when a job ends; `pipeline.py` / the Performance page add `sacct` once SLURM has accounted it |
 | logs | start `[SLURM-INFO]`/`[PYTHON-INFO]`, end `date \| elapsed \| max RSS` (`kv_footer`) |
 | subsampling | none; `SEED=42` exported anyway |

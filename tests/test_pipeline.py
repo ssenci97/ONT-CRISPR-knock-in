@@ -85,7 +85,7 @@ def test_plan_paths_and_resources(e):
         assert all(p.startswith(ok) for p in j["outputs"] + [j["log"]]), j["key"]
         assert (j["cpus"], j["mem_mb"], j["minutes"]) == pl.RES[j["key"].split("_")[0]]
     a = keys(e)["alpine_A"]
-    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (16, 8000, 1440)
+    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (4, 8000, 1440)
 
 def test_plan_local_fastq_is_bound(e):
     assert keys(e)["filter_C"]["binds"] == [str(e.fq.parent)]
@@ -94,12 +94,13 @@ def test_plan_local_fastq_is_bound(e):
 def test_fresh_submit(e):
     out = pl.submit(N, e.r)
     calls, plan = e.calls(), pl.plan(N, e.r)
-    assert [c["key"] for c in calls] == [j["key"] for j in plan] and len(calls) == 14
-    ids = {c["key"]: c["id"] for c in calls}
-    for c, j in zip(calls, plan):
+    assert sorted(c["key"] for c in calls) == sorted(j["key"] for j in plan) and len(calls) == 14
+    ids, by = {c["key"]: c["id"] for c in calls}, {j["key"]: j for j in plan}
+    for c in calls:
+        j = by[c["key"]]
         dep = {k: v.split(":") for k, _, v in (x.partition(":") for a in c["argv"] if a.startswith("--dependency=") for x in a.removeprefix("--dependency=").split(","))}
         want = [ids[d] for d in j["deps"]]
-        assert dep.get("afterok", []) == want and len(dep.get("afterany", [])) <= 1, j["key"]
+        assert dep.get("afterok", []) == want and not set(dep.get("afterany", [])) & set(want), j["key"]
         assert c["odir"] == "1"
         assert all(os.path.isdir(os.path.dirname(o)) for o in j["outputs"])
         env = dict(l.split("=", 1) for l in (e.fake / f"env_{c['id']}.txt").read_text().splitlines() if "=" in l)
@@ -113,22 +114,41 @@ def test_fresh_submit(e):
 def test_resources_reach_sbatch(e):
     pl.submit(N, e.r)
     a = next(c["argv"] for c in e.calls() if c["key"] == "alpine_A")
-    assert a[a.index("-c") + 1] == "16" and "--mem=8000" in a and a[a.index("-t") + 1] == "1440"
+    assert a[a.index("-c") + 1] == "4" and "--mem=8000" in a and a[a.index("-t") + 1] == "1440"
     assert a[a.index("-p") + 1] == "GENOA" and a[a.index("-N") + 1] == "1" and a[a.index("--comment") + 1] == f"kv:{N}:alpine_A"
-    assert a[-2:] == ["16", "8000"]
+    assert a[-2:] == ["4", "8000"]
 
-def test_lanes_keep_the_analysis_within_the_cpu_budget(e):
+def sized(e):
+    jobs = pl.plan(N, e.r)
+    for j in jobs: pl.size_job(j, [])
+    return jobs
+
+def test_schedule_tokens_keep_the_ceiling_whatever_the_run_times(e):
+    jobs = sized(e); nodes = [pl.ceiling("", "GENOA", None)]
+    sch = pl.schedule(jobs, nodes)
+    by, holders = {j["key"]: j for j in jobs}, {}
+    for k in sch["order"]:
+        j = by[k]
+        assert len(sch["held"][k]) >= j["cpus"] and len(sch["held"][k]) * nodes[0]["mb_per_token"] >= j["mem_mb"]
+        for t in sch["held"][k]:
+            if t in holders: assert holders[t] in sch["prev"][k]
+            holders[t] = k
+    assert len(holders) <= pl.BUDGET_CPUS and set(sch["order"]) == set(by)
+
+def test_schedule_launches_early_and_in_parallel(e):
+    sch = pl.schedule(sized(e), [pl.ceiling("", "GENOA", None)])
+    assert sch["start"]["refs"] == 0 and sch["prev"]["refs"] == [] and pl.peak(sch) >= 5
+    assert sch["start"]["summary"] == max(sch["start"].values())
+
+def test_submission_follows_the_schedule_and_waits_only_on_token_holders(e):
     pl.submit(N, e.r)
-    calls, by = e.calls(), {j["key"]: j for j in pl.plan(N, e.r)}
-    lane = {c["key"]: next((x.split(":")[1] for a in c["argv"] if a.startswith("--dependency=") for x in a.removeprefix("--dependency=").split(",") if x.startswith("afterany:")), None) for c in calls}
-    deps = {c["key"]: {i for a in c["argv"] if a.startswith("--dependency=") for x in a.removeprefix("--dependency=").split(",") for i in x.split(":")[1:]} for c in calls}
-    ids = {c["key"]: c["id"] for c in calls}
-    heads = [k for k in ids if not deps[k] & set(ids.values())]
-    n = pl.BUDGET_CPUS // max(j["cpus"] for j in by.values())
-    chained = {k for k in ids if lane[k] or set(ids[d] for d in by[k]["deps"])}
-    assert n == 2 and len(set(ids) - chained) <= n and sum(by[k]["cpus"] for k in heads) <= pl.BUDGET_CPUS
+    calls = e.calls(); ids = {c["key"]: c["id"] for c in calls}; pos = {c["key"]: i for i, c in enumerate(calls)}
+    for c in calls:
+        dep = [a for a in c["argv"] if a.startswith("--dependency=")]
+        for part in (dep[0].removeprefix("--dependency=").split(",") if dep else []):
+            for i in part.split(":")[1:]: assert pos[next(k for k, v in ids.items() if v == i)] < pos[c["key"]]
     log = (e.root / "results" / N / "logs/node_pick.log").read_text()
-    assert "2 lane(s) of 16 cpus (budget 32 cpus 64 GB)" in log and "default (no finished run yet)" in log
+    assert "(budget 32 cpus 64 GB)" in log and "= 32 tokens of 1 cpu + 2.0 GB" in log and "refs: 1 cpus" in log and "starts ~0 min" in log
 
 def test_too_many_jobs_refused_before_any_sbatch(e, monkeypatch):
     monkeypatch.setattr(pl, "MAX_JOBS", 5)
@@ -169,21 +189,21 @@ def test_sizing_prefers_sacct_rss_over_the_cache_inflated_log_peak(e):
     a = {c["key"]: c["argv"] for c in e.calls()}
     assert "--mem=3072" in a["alpine_A"] and "peak 2.0 GB (sacct MaxRSS" in (e.root / "results" / N / "logs/node_pick.log").read_text()
 
-def test_sizing_learns_cores_down_from_cpu_use_never_up(e):
+def test_sizing_learns_cores_down_and_up_from_cpu_use(e):
     d = e.root / "results/other"; d.mkdir(parents=True)
-    (d / "jobs.tsv").write_text("\t".join(pl.COLS) + "\nalpine_X\ts\tl\t77\t/x\t\t16\t8000\t1440\t0\nlungo_X\ts\tl\t78\t/x\t\t16\t8000\t1440\t0\n")
-    e.put("sacct.txt", "77|COMPLETED|||02:30:00|16\n77.batch||2048M|01:00:00||\n78|COMPLETED|||40:00:00|16\n78.batch||2048M|02:00:00||\n")
+    (d / "jobs.tsv").write_text("\t".join(pl.COLS) + "\nalpine_X\ts\tl\t77\t/x\t\t4\t8000\t1440\t0\nlungo_X\ts\tl\t78\t/x\t\t4\t8000\t1440\t0\n")
+    e.put("sacct.txt", "77|COMPLETED|||01:00:00|4\n77.batch||2048M|01:00:00||\n78|COMPLETED|||07:48:00|4\n78.batch||2048M|02:00:00||\n")
     pl.submit(N, e.r)
     a = {c["key"]: c["argv"] for c in e.calls()}
-    assert a["alpine_A"][a["alpine_A"].index("-c") + 1] == "4" and a["lungo_A"][a["lungo_A"].index("-c") + 1] == "16"
+    assert a["alpine_A"][a["alpine_A"].index("-c") + 1] == "2" and a["lungo_A"][a["lungo_A"].index("-c") + 1] == "8"
     log = (e.root / "results" / N / "logs/node_pick.log").read_text()
-    assert "cpus 16 -> 4: at most 2.5 cores used" in log and "lane(s) of 16 cpus" in log
+    assert "cpus 4 -> 2: at most 1.0 cores used" in log and "cpus 4 -> 8: a run kept its 4 cores busy" in log
 
 def test_done_jobs_keep_their_history_row_on_relaunch(e):
-    pl.submit(N, e.r); e.fake_done(); os.remove(keys(e)["alpine_A"]["outputs"][0])
+    pl.submit(N, e.r); first = {c["key"]: c["id"] for c in e.calls()}; e.fake_done(); os.remove(keys(e)["alpine_A"]["outputs"][0])
     pl.submit(N, e.r)
     rows = {r["key"]: r for r in pl.read_jobs(N, e.r)}
-    assert rows["filter_A"]["jobid"] == "1004" and rows["filter_A"]["mem_mb"] == "2000" and rows["alpine_A"]["jobid"] != "1009"
+    assert rows["filter_A"]["jobid"] == first["filter_A"] and rows["filter_A"]["mem_mb"] == "2000" and rows["alpine_A"]["jobid"] != first["alpine_A"]
 
 ###################################### done check
 def test_all_done_submits_nothing(e):
@@ -396,6 +416,8 @@ def nodes_env(e, monkeypatch):
     for f in ("node_pick.sh", "best_node.sh"): shutil.copy(f"{ROOT}/src/{f}", e.root / "src" / f)
     monkeypatch.setenv("NODE_PICK", "1")
 
+def wide(monkeypatch): monkeypatch.setattr(pl, "RES", {**pl.RES, "alpine": (16, 8000, 1440), "lungo": (16, 8000, 1440)})
+
 def pins(e): return {c["key"]: c["argv"][c["argv"].index("-w") + 1] if "-w" in c["argv"] else "" for c in e.calls()}
 
 def test_width_is_the_widest_level_of_the_dag(e):
@@ -406,14 +428,19 @@ def test_savemem_stays_on_one_node_within_the_project_budget(e, monkeypatch):
     pl.submit(N, e.r)
     assert set(pins(e).values()) == {"genoa04"}
     log = (e.root / "results" / N / "logs/node_pick.log").read_text()
-    assert "[savemem]" in log and "at most 32 cpus 64 GB -> 2 lane(s)" in log
+    assert "[savemem]" in log and "node genoa04 GENOA: at most 32 cpus 64 GB = 32 tokens" in log
 
 def test_processive_adds_a_second_node_of_the_same_partition_only_when_useful(e, monkeypatch):
-    nodes_env(e, monkeypatch)
+    nodes_env(e, monkeypatch); wide(monkeypatch)
     pl.submit(N, e.r, profile="processive")
     assert set(pins(e).values()) == {"genoa04", "genoa02"}
     log = (e.root / "results" / N / "logs/node_pick.log").read_text()
     assert "second node genoa02" in log and "parallel width 5" in log and "thin01" not in log
+
+def test_processive_stays_on_one_node_when_the_jobs_fit(e, monkeypatch):
+    nodes_env(e, monkeypatch)
+    pl.submit(N, e.r, profile="processive")
+    assert set(pins(e).values()) == {"genoa04"}
 
 def test_processive_with_one_wide_enough_node_uses_one(e, monkeypatch):
     nodes_env(e, monkeypatch)
@@ -422,7 +449,7 @@ def test_processive_with_one_wide_enough_node_uses_one(e, monkeypatch):
     assert len(set(pins(e).values())) == 1
 
 def test_custom_uses_only_the_ticked_nodes_and_only_as_many_as_needed(e, monkeypatch):
-    nodes_env(e, monkeypatch)
+    nodes_env(e, monkeypatch); wide(monkeypatch)
     pl.submit(N, e.r, profile="custom", picked=["genoa04", "genoa02", "genoa01", "thin01"])
     used = set(pins(e).values())
     assert used <= {"genoa04", "genoa02", "genoa01"} and "thin01" not in used and len(used) == 3
@@ -445,7 +472,7 @@ def test_jobs_carry_their_metadata_target_and_ask(e):
     env = dict(l.split("=", 1) for l in (e.fake / f"env_{ids['alpine_A']}.txt").read_text().splitlines() if "=" in l)
     assert env["KV_META_TARGET"] == "A" and env["KV_META_STEP"] == "03_alpine"
     ask = __import__("json").loads(env["KV_ASK"])
-    assert ask["cpus"] == 16 and ask["mem_mb"] == 8000 and "default" in ask["why"]
+    assert ask["cpus"] == 4 and ask["mem_mb"] == 8000 and "default" in ask["why"]
     env = dict(l.split("=", 1) for l in (e.fake / f"env_{ids['refs']}.txt").read_text().splitlines() if "=" in l)
     assert env["KV_META_TARGET"] == "_analysis" and env["KV_META_STEP"] == "refs"
 
@@ -477,12 +504,12 @@ def test_fill_perf_adds_sacct_view_and_covers_jobs_that_died_before_writing(e):
     assert not (meta / "_analysis.json").exists() or "refs" not in json.load(open(meta / "_analysis.json"))["steps"]
 
 def test_custom_skips_nodes_whose_half_is_below_the_widest_job(e, monkeypatch):
-    nodes_env(e, monkeypatch)
+    nodes_env(e, monkeypatch); wide(monkeypatch)
     pl.submit(N, e.r, profile="custom", picked=["thin01", "genoa04"])
     assert set(pins(e).values()) == {"genoa04"}
     assert "skipped thin01" in (e.root / "results" / N / "logs/node_pick.log").read_text()
 
 def test_custom_with_only_too_small_nodes_is_refused(e, monkeypatch):
-    nodes_env(e, monkeypatch)
+    nodes_env(e, monkeypatch); wide(monkeypatch)
     with pytest.raises(ValueError, match="widest job"): pl.submit(N, e.r, profile="custom", picked=["thin01"])
     assert not e.calls()

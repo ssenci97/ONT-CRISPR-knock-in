@@ -15,9 +15,10 @@ BP_RE = re.compile(r"^[A-Za-z0-9]+$")
 FOOTER = re.compile(r"\| elapsed [0-9]")
 PEAK_RE = re.compile(r"\| elapsed ([0-9:]+) \| max RSS ([0-9.]+) GB")
 COLS = ["key", "step", "label", "jobid", "log", "node", "cpus", "mem_mb", "minutes", "in_bytes"]
-RES = dict(ena=(1, 1000, 15), download=(8, 4000, 720), filter=(8, 2000, 240), refs=(1, 1000, 60), alpine=(16, 8000, 1440), lungo=(16, 8000, 1440), summary=(1, 2000, 30))
+RES = dict(ena=(1, 1000, 15), download=(2, 4000, 720), filter=(2, 2000, 240), refs=(1, 1000, 60), alpine=(4, 8000, 1440), lungo=(4, 8000, 1440), summary=(1, 2000, 30))
+EST = dict(ena=2, download=30, filter=10, refs=5, alpine=60, lungo=60, summary=5)
 PARTITION, BUDGET_CPUS, BUDGET_MEM_MB = "GENOA", 32, 64000
-MEM_MIN, MEM_MAX, TIME_MIN, TIME_MAX, SAFETY, CPU_SAFETY = 1000, 32000, 15, 2880, 1.25, 1.25
+MEM_MIN, MEM_MAX, TIME_MIN, TIME_MAX, SAFETY, CPU_SAFETY, CPU_MAX, CPU_HOT = 1000, 32000, 15, 2880, 1.25, 1.25, 16, 0.9
 MAX_JOBS, MAX_USER_JOBS, STOP_WAIT, STOP_PAUSE = 100, 200, 120, 2
 REF_FILES = ("TRAC_WT.fa", "TRAC_KI.fa", "CAR_insert.fa", "alpine/ref.fa", "alpine/config.tsv", "design.json")
 PROFILES, NODE_FRACTION, NODE_RE = dict(savemem=1, processive=2, custom=4), 0.5, re.compile(r"^[A-Za-z0-9._-]+$")
@@ -195,7 +196,7 @@ def history(root):
         if not state: continue
         rss = u.get("rss", 0.0); el = max(lt, u.get("minutes", 0.0))
         out.setdefault(kind(r["key"]), []).append(dict(state=state, peak=rss or lp, minutes=el, src="sacct MaxRSS" if rss else "log cgroup peak" if lp else "none",
-                                                       cores_used=u.get("cpu_min", 0.0) / u["minutes"] if u.get("minutes") and u.get("cpu_min") else 0.0,
+                                                       cores_used=u.get("cpu_min", 0.0) / u["minutes"] if u.get("minutes") and u.get("cpu_min") else 0.0, cpus_req=float(r.get("cpus") or 0),
                                                        mem_mb=float(r["mem_mb"]), minutes_req=float(r.get("minutes") or 0), in_bytes=float(r.get("in_bytes") or 0)))
     return out
 
@@ -207,31 +208,68 @@ def size_job(j, obs):
     if ok:
         ref = max(ok, key=lambda o: o["peak"] * scale(o))
         mem, why = SAFETY * ref["peak"] * scale(ref) + 512, f"peak {ref['peak'] / 1024:.1f} GB ({ref['src']}, input {ref['in_bytes'] / 1e9:.2f} GB) x input ratio {scale(ref):.2f} (this input {inb / 1e9:.2f} GB) x {SAFETY} + 0.5 GB, best of {len(ok)} run(s)"
-        t = 2 * max(o["minutes"] * scale(o) for o in ok) + 10
-    else: mem, why, t = m0, "default (no finished run yet)", t0
+        est = max(o["minutes"] * scale(o) for o in ok); t = 2 * est + 10
+    else: mem, why, t, est = m0, "default (no finished run yet)", t0, EST[kind(j["key"])]
     oom = [2 * o["mem_mb"] for o in obs if o["state"] == "OUT_OF_MEMORY"]
     if oom and max(oom) > mem: mem, why = max(oom), f"2 x the {max(oom) / 2048:.1f} GB of a job that ran out of memory"
     t = max([t] + [2 * o["minutes_req"] for o in obs if o["state"] == "TIMEOUT"])
-    used = [o["cores_used"] for o in ok if o["cores_used"] > 0]
+    used = [(o["cores_used"], o["cpus_req"]) for o in ok if o["cores_used"] > 0]
     if used:
-        c2 = max(1, min(c, -int(-max(used) * CPU_SAFETY // 1)))
-        if c2 != c: why = f"{why}; cpus {c} -> {c2}: at most {max(used):.1f} cores used on average (sacct TotalCPU / Elapsed) x {CPU_SAFETY}"
+        hot = [r for u, r in used if r and u >= CPU_HOT * r]
+        c2 = min(CPU_MAX, int(2 * max(hot))) if hot else max(1, min(CPU_MAX, -int(-max(u for u, _ in used) * CPU_SAFETY // 1)))
+        if c2 != c: why = f"{why}; cpus {c} -> {c2}: " + (f"a run kept its {int(max(hot))} cores busy (>= {int(CPU_HOT * 100)}%), doubling up to {CPU_MAX}" if hot else f"at most {max(u for u, _ in used):.1f} cores used on average (sacct TotalCPU / Elapsed) x {CPU_SAFETY}")
         c = c2
     final = int(min(MEM_MAX, max(MEM_MIN, mem)))
-    j.update(cpus=c, mem_mb=final, minutes=int(min(TIME_MAX, max(TIME_MIN, t))), in_bytes=inb,
+    j.update(cpus=c, mem_mb=final, est=round(est, 1), minutes=int(min(TIME_MAX, max(TIME_MIN, t))), in_bytes=inb,
              sized=f"{why} = {mem / 1024:.1f} GB" + (f" !! above our cap, capped at {MEM_MAX // 1000} GB" if mem > MEM_MAX else ""))
 
-def width(jobs):
+def levels(jobs):
     lv = {}
     for j in jobs: lv[j["key"]] = 1 + max([lv[d] for d in j["deps"] if d in lv], default=-1)
-    return max(collections.Counter(lv.values()).values(), default=1)
+    return lv
 
-def lanes(jobs, nodes, want):
-    slots = [n for n in nodes for _ in range(n["lanes"])][:max(1, want)] or [dict(node="", part=PARTITION)]
-    load, tail, prev, where = [0.0] * len(slots), [""] * len(slots), {}, {}
+def width(jobs): return max(collections.Counter(levels(jobs).values()).values(), default=1)
+
+def demand(jobs):
+    lv, c, m = levels(jobs), collections.Counter(), collections.Counter()
+    for j in jobs: c[lv[j["key"]]] += j["cpus"]; m[lv[j["key"]]] += j["mem_mb"]
+    return max(c.values(), default=1), max(m.values(), default=1)
+
+def schedule(jobs, nodes):
+    """DAG-aware launch plan under the ceiling. Each node's ceiling is split into tokens of 1 cpu + an equal share of memory;
+    a job holds max(cpus, memory share) tokens of one node and waits (afterany) only for their previous holders, so the
+    ceiling holds whatever the real run times are. Tokens go to the job that can start earliest, the longest remaining chain first."""
+    keys, kids = {j["key"] for j in jobs}, collections.defaultdict(list)
     for j in jobs:
-        k = min(range(len(slots)), key=load.__getitem__); prev[j["key"]] = tail[k]; tail[k] = j["key"]; load[k] += j["minutes"]; where[j["key"]] = slots[k]
-    return len(slots), prev, where
+        for d in j["deps"]:
+            if d in keys: kids[d].append(j["key"])
+    bl = {}
+    for j in reversed(jobs): bl[j["key"]] = j.get("est", 1) + max([bl[k] for k in kids[j["key"]]], default=0)
+    for n in nodes: n["mb_per_token"] = n["mem"] / max(1, n["cpus"])
+    toks = [dict(id=f"{n['node'] or 'any'}#{i}", node=i_n, free=0.0, last="") for i_n, n in enumerate(nodes) for i in range(max(1, n["cpus"]))]
+    placed, order, prev, where, start, end, held = set(), [], {}, {}, {}, {}, {}
+    while len(placed) < len(jobs):
+        best = None
+        for j in jobs:
+            if j["key"] in placed or any(d in keys and d not in placed for d in j["deps"]): continue
+            ready = max([end[d] for d in j["deps"] if d in end], default=0.0)
+            for i_n, n in enumerate(nodes):
+                pool = sorted((t for t in toks if t["node"] == i_n), key=lambda t: t["free"])
+                k = min(len(pool), max(j["cpus"], -int(-j["mem_mb"] / n["mb_per_token"] // 1)))
+                pick = pool[:k]; s0 = max(ready, pick[-1]["free"])
+                cand = (s0, -bl[j["key"]], j["key"], i_n)
+                if best is None or cand < best[0]: best = (cand, j, i_n, pick, s0)
+        _, j, i_n, pick, s0 = best
+        prev[j["key"]] = sorted({t["last"] for t in pick if t["last"]})
+        for t in pick: t["free"], t["last"] = s0 + j.get("est", 1), j["key"]
+        placed.add(j["key"]); order.append(j["key"]); where[j["key"]] = nodes[i_n]; start[j["key"]] = s0; end[j["key"]] = s0 + j.get("est", 1); held[j["key"]] = [t["id"] for t in pick]
+    return dict(order=order, prev=prev, where=where, start=start, end=end, held=held)
+
+def peak(plan):
+    ev = sorted([(t, 1) for t in plan["start"].values()] + [(t, -1) for t in plan["end"].values()], key=lambda e: (e[0], e[1]))
+    run = top = 0
+    for _, d in ev: run += d; top = max(top, run)
+    return top
 
 def node_table():
     out = {}
@@ -264,6 +302,7 @@ def ceiling(node, part, t, cap=None):
 def choose_nodes(jobs, profile, picked, root):
     """Nodes for this launch: the profile sets the most an analysis may get, the DAG width how much of it is used."""
     w, m, want = max(j["cpus"] for j in jobs), max(j["mem_mb"] for j in jobs), width(jobs)
+    need_c, need_m = demand(jobs)
     if profile == "custom":
         table = {n["node"]: n for n in node_table()}
         bad = [x for x in picked if x not in table or not table[x]["usable"]]
@@ -276,8 +315,7 @@ def choose_nodes(jobs, profile, picked, root):
         node, part, why = pick_node(jobs, max(1, min(BUDGET_CPUS // w, BUDGET_MEM_MB // m, want)), w, root)
         table = {n["node"]: n for n in node_table()} if node else {}
         nodes = [ceiling(node, part, table.get(node), (BUDGET_CPUS, BUDGET_MEM_MB) if profile == "savemem" else None)]
-        first = max(1, min(nodes[0]["cpus"] // w, nodes[0]["mem"] // m))
-        if profile == "processive" and node and first < want:
+        if profile == "processive" and node and (nodes[0]["cpus"] < need_c or nodes[0]["mem"] < need_m):
             alt = [n for n in table.values() if n["usable"] and n["node"] != node and part in n["partitions"] and n["idle"] >= w and n["free_mb"] >= m]
             if alt:
                 b = max(alt, key=lambda n: n["score"]); nodes.append(ceiling(b["node"], part, b))
@@ -288,10 +326,10 @@ def choose_nodes(jobs, profile, picked, root):
     if small: why += f"; skipped {', '.join(small)}: half the node is below the widest job ({w} cpus {m // 1000} GB)"
     if not fit and profile == "custom": raise ValueError(f"custom profile: none of the ticked nodes has half its size above the widest job ({w} cpus {m // 1000} GB)")
     if not fit: fit, why = nodes[:1], why + " !! keeping the only node although the widest job is above its ceiling"
-    used, total = [], 0
+    used = []
     for n in fit:
-        if used and total >= want: break
-        n["lanes"] = max(1, min(n["cpus"] // w, n["mem"] // m)); used.append(n); total += n["lanes"]
+        if used and sum(x["cpus"] for x in used) >= need_c and sum(x["mem"] for x in used) >= need_m: break
+        used.append(n)
     return used, want, why
 
 def pick_node(jobs, n, w, root):
@@ -356,25 +394,26 @@ def launch(name, root, profile="savemem", picked=()):
     try: fill_perf(name, root)
     except (OSError, ValueError) as e: log(f"!! performance metadata not refreshed: {e}")
     nodes, want, why = choose_nodes(todo_jobs, profile, picked, root) if todo_jobs else ([], 1, "")
-    n, prev, where = lanes(todo_jobs, nodes, want) if todo_jobs else (1, {}, {})
-    w = max((j["cpus"] for j in todo_jobs), default=1)
-    plog = [f"[PYTHON-INFO] {datetime.datetime.now():%F %T} launch {name} [{profile}]: {len(todo_jobs)} job(s) in {n} lane(s) of {w} cpus (budget {sum(x['cpus'] for x in nodes)} cpus {sum(x['mem'] for x in nodes) // 1000} GB), {why}"]
-    plog += [f"[PYTHON-INFO]   parallel width {want} (most jobs that can run at once)"] if todo_jobs else []
-    plog += [f"[PYTHON-INFO]   node {x['node'] or '(no pin)'} {x['part']}: at most {x['cpus']} cpus {x['mem'] // 1000} GB -> {x['lanes']} lane(s)" for x in nodes]
-    plog += [f"[PYTHON-INFO]   {j['key']}: {j['cpus']} cpus {j['mem_mb']} MB {j['minutes']} min ({j['sized']})" for j in todo_jobs]
+    sch = schedule(todo_jobs, nodes) if todo_jobs else dict(order=[], prev={}, where={}, start={}, end={}, held={})
+    by = {j["key"]: j for j in jobs}
+    plog = [f"[PYTHON-INFO] {datetime.datetime.now():%F %T} launch {name} [{profile}]: {len(todo_jobs)} job(s) on {len(nodes)} node(s) (budget {sum(x['cpus'] for x in nodes)} cpus {sum(x['mem'] for x in nodes) // 1000} GB), {why}"]
+    if todo_jobs:
+        plog += [f"[PYTHON-INFO]   parallel width {want} (most jobs that can run at once); expected: up to {peak(sch)} job(s) at once, done in ~{max(sch['end'].values()):.0f} min (estimates from earlier runs, else per-tool defaults)"]
+        plog += [f"[PYTHON-INFO]   node {x['node'] or '(no pin)'} {x['part']}: at most {x['cpus']} cpus {x['mem'] // 1000} GB = {x['cpus']} tokens of 1 cpu + {x['mb_per_token'] / 1000:.1f} GB" for x in nodes]
+        plog += [f"[PYTHON-INFO]   {k}: {by[k]['cpus']} cpus {by[k]['mem_mb']} MB {by[k]['minutes']} min; starts ~{sch['start'][k]:.0f} min on {sch['where'][k]['node'] or '(no pin)'}, ~{by[k]['est']:.0f} min; waits for {', '.join(sch['prev'][k]) or 'its inputs only'} ({by[k]['sized']})" for k in sch["order"]]
     os.makedirs(f"{d}/logs", exist_ok=True); open(f"{d}/logs/node_pick.log", "a").write("\n".join(plog) + "\n")
     for l in plog[:1]: log(l.split("] ", 1)[1])
     before = {r["key"]: r for r in read_jobs(name, root)}
-    for j in jobs:
+    for j in [j for j in jobs if j["key"] not in run] + [by[k] for k in sch["order"]]:
         if j["key"] not in run: out.append(dict(j, **{k: v for k, v in before.get(j["key"], {}).items() if k in ("jobid", "node", "cpus", "mem_mb", "minutes", "in_bytes") and v}, state="done") if j["key"] in before else dict(j, state="done", jobid="", node="")); continue
         if os.path.exists(f"{d}/.stop"):
             if ids: subprocess.run(["scancel"] + list(ids.values()), capture_output=True)
             write_jobs(name, root, out); raise RuntimeError(f"stopped while submitting: {len(ids)} submitted job(s) cancelled")
         for p in [os.path.dirname(o) for o in j["outputs"]] + [os.path.dirname(j["log"])]: os.makedirs(p, exist_ok=True)
-        dep, after = [ids[x] for x in j["deps"] if x in ids], ids.get(prev.get(j["key"], ""), "")
-        when = ",".join(([f"afterok:{':'.join(dep)}"] if dep else []) + ([f"afterany:{after}"] if after and after not in dep else []))
+        dep = [ids[x] for x in j["deps"] if x in ids]; after = [ids[x] for x in sch["prev"].get(j["key"], []) if x in ids and ids[x] not in dep]
+        when = ",".join(([f"afterok:{':'.join(dep)}"] if dep else []) + ([f"afterany:{':'.join(after)}"] if after else []))
         args = [a.format(cpus=j["cpus"], mem_mb=j["mem_mb"]) if a in ("{cpus}", "{mem_mb}") else a for a in j["args"]]
-        node, part = where[j["key"]]["node"], where[j["key"]]["part"]
+        node, part = sch["where"][j["key"]]["node"], sch["where"][j["key"]]["part"]
         cmd = ["sbatch", "--parsable", "-J", f"kv_{name}_{j['key']}", "-p", part] + (["-w", node] if node else []) + ["-N", "1", "-c", str(j["cpus"]), f"--mem={j['mem_mb']}", "-t", str(j["minutes"]),
             "-o", j["log"], "--kill-on-invalid-dep=yes", "--comment", f"kv:{name}:{j['key']}"] + ([f"--dependency={when}"] if when else []) + [f"{root}/src/kv_job.sh", j["script"]] + args
         r = subprocess.run(cmd, capture_output=True, text=True, env=sbatch_env(root, name, img, j["binds"], j["outputs"], j))
