@@ -19,7 +19,7 @@
 | cluster | `python3` (PyYAML optional), `sbatch`, `singularity` (`module load singularity`), `curl` |
 | workstation (build) | `docker` or `podman` |
 | disk | room for the downloaded reads, results and the image |
-| resources | CPUs per tool in `RES` (`src/pipeline.py`); memory/time learned from earlier runs (log footer + `sacct`); ≤ 32 GB per job; ≤ 100 jobs per launch; per-analysis ceiling set by the agency profile (§4) |
+| resources | defaults per tool in `RES` (`src/pipeline.py`); after a finished run, memory = 1.25 × `sacct` MaxRSS (input-scaled) + 0.5 GB, cores = 1.25 × cores used (never above the default), time = 2 × longest + 10 min; OOM/TIMEOUT double at the next launch; ≤ 32 GB per job; ≤ 100 jobs per launch; per-analysis ceiling set by the agency profile (§4) |
 
 ## 3. Layout
 
@@ -140,6 +140,8 @@
 | Processive used only one node | the parallel jobs fit on the first node, or no second node of that partition had room for the widest job; `logs/node_pick.log` says which |
 | **All examples** shows one report | fixed: the Results tab now shows one KI % table per analysis of the group; a missing table means that analysis' summary job has not finished (see its Run tab) |
 | `perf.used.max_rss_gb` is `null` | the job's cgroup peak is not readable on that node; `perf.sacct.max_rss_gb` fills it after accounting |
+| first run of a tool ends `OUT_OF_MEMORY` | the first-run defaults are modest by design → run the analysis again: the job asks twice as much, done jobs are kept |
+| `perf.used.max_rss_gb` ≫ `perf.sacct.max_rss_gb` | the first is the cgroup peak and includes page cache; sizing uses the second |
 | job failed or half-done | run `python3 src/pipeline.py <name>` again; done jobs are skipped |
 | ALPINE `--no-container` refused | `DockerRequirement`; stripped by `src/alpine.sh` |
 | ALPINE hangs at `count_read` | `plt.show()`; `MPLBACKEND=Agg` |

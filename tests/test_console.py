@@ -239,7 +239,7 @@ def test_perf_reports_nodes_and_job_efficiency_without_user_data(server):
     post(f"{base}/api/run", analysis="run_one")
     jid = jobs_tsv(tmp)["alpine_A"]
     (tmp / "bin/sacct.txt").write_text(f"{jid}|COMPLETED|01:00:00|08:00:00||16|64000M|2026-11-14T10:00:00|2026-11-14T10:30:00|2026-11-14T11:30:00|genoa01\n"
-                                       f"{jid}.batch||01:00:00|08:00:00|16G||||||\n")
+                                       f"{jid}.batch||01:00:00|08:00:00|4G||||||\n")
     p = get(f"{base}/api/perf")
     c, parts = p["cluster"], {x["partition"]: x for x in p["cluster"]["partitions"]}
     assert [n["node"] for n in c["nodes"]] == ["genoa01", "genoa02", "thin001"] and parts["GENOA"]["fit"] == 2 and parts["THIN"]["fit"] == 0

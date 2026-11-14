@@ -93,7 +93,7 @@ Each variable is listed with what it controls, the step that reads it, and the o
 - `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise. **Do not lower this below 21 for the example design:** the donor's PAM-blocking mutations sit at cut −3..0 and at **+20 bp**, so 25 clears the furthest one by only 4 bp. At the upstream default of 5 that mutation falls outside the window and CRISPRLungo warns.
   - step: `04_lungo`
   - original argument: CRISPRlungo `--window`
-- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job. CPUs are fixed per tool (`RES` in `src/pipeline.py`); memory and time are learned from earlier runs (see [SLURM use](#slurm-use-agency-profiles-a-ceiling-learned-memory)).
+- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job. CPUs start from the per-tool defaults (`RES` in `src/pipeline.py`) and are lowered to what earlier runs actually used; memory and time are learned from earlier runs (see [SLURM use](#slurm-use-agency-profiles-a-ceiling-learned-memory)).
   - step: `every step`
   - original argument: `sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin
 
@@ -209,12 +209,13 @@ Each **Run on SLURM** (or `pipeline.py <name> [--profile savemem|processive|cust
 
    Node sizes and free resources come from `sinfo` at launch. Down, drained, GPU, DGX, H100 and UPDATE nodes are never used. If `get_best_node` finds nothing, jobs queue on GENOA without a pin. `NODE_PICK=0` turns the pick off for SaveMem and Processive.
 3. **Lanes.** Jobs run in lanes as wide as the widest job (16 cores for ALPINE and CRISPRLungo). The number of lanes is the smaller of what fits under the ceiling and the **parallel width**: the most jobs that can run at the same time in this launch. A second or later node is used only when that width does not fit on the nodes already chosen. Each job also waits for the previous job in its lane (`--dependency=afterok:<real deps>,afterany:<lane predecessor>`) and is submitted with `-p <partition> -w <node> -N 1`.
-4. **Memory and time.** Three things are combined for each job:
+4. **Memory, cores and time.** They are learned from real runs on the cluster, never from guesses:
    - the **sample's input size**, recorded in `jobs.tsv` with every job;
-   - the **real peak memory** of earlier jobs of the same tool in any analysis, taken as the larger of the `max RSS` printed in the job log footer and `sacct` MaxRSS;
+   - the **real resident memory** of earlier jobs of the same tool in any analysis: `sacct` MaxRSS. The job log footer's peak is only a fallback, because it is the cgroup `memory.peak`, which also counts page cache (reads and BAMs the kernel keeps in RAM and can drop) and so overstates what a job needs;
+   - the **cores actually used**: `sacct` TotalCPU ÷ Elapsed;
    - **our cap** of 32 GB per job.
 
-   Memory = 1.5 × the peak, scaled up by this input ÷ that input (never down), + 0.5 GB, taking the run that gives the highest value. A job that ran out of memory doubles its last request. The result is clamped to 1–32 GB, and the log says so when the cap cuts it. Time = 2 × the longest run (scaled the same way) + 10 min, kept within 15 min–48 h. With no history yet, the defaults in `RES` are used. Every choice and its reasoning is written to `logs/node_pick.log`. Jobs skipped as done keep their `jobs.tsv` row, so their history is not lost.
+   Memory = 1.25 × the peak, scaled up by this input ÷ that input (never down), + 0.5 GB, taking the run that gives the highest value. A job that ran out of memory doubles its last request at the next launch (run the analysis again; done jobs are kept). The result is clamped to 1–32 GB, and the log says so when the cap cuts it. Cores = 1.25 × the most cores a finished run used on average, rounded up, never above the tool's default, so narrower jobs leave room for more lanes on the same node. Time = 2 × the longest run (scaled the same way) + 10 min, kept within 15 min–48 h, and a timed-out job doubles its request. With no finished run of a tool yet, the defaults in `RES` are used (memory: ALPINE and CRISPRLungo 8 GB, download 4 GB, filter and summary 2 GB, ENA and refs 1 GB). Every choice and its reasoning is written to `logs/node_pick.log`. Jobs skipped as done keep their `jobs.tsv` row, so their history is not lost.
 
 ### Performance metadata
 

@@ -15,9 +15,9 @@ BP_RE = re.compile(r"^[A-Za-z0-9]+$")
 FOOTER = re.compile(r"\| elapsed [0-9]")
 PEAK_RE = re.compile(r"\| elapsed ([0-9:]+) \| max RSS ([0-9.]+) GB")
 COLS = ["key", "step", "label", "jobid", "log", "node", "cpus", "mem_mb", "minutes", "in_bytes"]
-RES = dict(ena=(1, 1000, 15), download=(8, 16000, 720), filter=(8, 8000, 240), refs=(1, 4000, 60), alpine=(16, 32000, 1440), lungo=(16, 32000, 1440), summary=(1, 4000, 30))
+RES = dict(ena=(1, 1000, 15), download=(8, 4000, 720), filter=(8, 2000, 240), refs=(1, 1000, 60), alpine=(16, 8000, 1440), lungo=(16, 8000, 1440), summary=(1, 2000, 30))
 PARTITION, BUDGET_CPUS, BUDGET_MEM_MB = "GENOA", 32, 64000
-MEM_MIN, MEM_MAX, TIME_MIN, TIME_MAX, SAFETY = 1000, 32000, 15, 2880, 1.5
+MEM_MIN, MEM_MAX, TIME_MIN, TIME_MAX, SAFETY, CPU_SAFETY = 1000, 32000, 15, 2880, 1.25, 1.25
 MAX_JOBS, MAX_USER_JOBS, STOP_WAIT, STOP_PAUSE = 100, 200, 120, 2
 REF_FILES = ("TRAC_WT.fa", "TRAC_KI.fa", "CAR_insert.fa", "alpine/ref.fa", "alpine/config.tsv", "design.json")
 PROFILES, NODE_FRACTION, NODE_RE = dict(savemem=1, processive=2, custom=4), 0.5, re.compile(r"^[A-Za-z0-9._-]+$")
@@ -172,11 +172,11 @@ def to_min(v):
 def usage(ids):
     out = {}
     for i in range(0, len(ids), 200):
-        for l in sh(["sacct", "-n", "-P", "-j", ",".join(ids[i:i + 200]), "-o", "JobID,State,MaxRSS,Elapsed"]):
-            f = l.split("|")
-            if len(f) < 4: continue
-            d = out.setdefault(f[0].split(".")[0], dict(state="", rss=0.0, minutes=0.0))
-            if "." not in f[0]: d["state"] = f[1].split()[0] if f[1].strip() else ""
+        for l in sh(["sacct", "-n", "-P", "-j", ",".join(ids[i:i + 200]), "-o", "JobID,State,MaxRSS,Elapsed,TotalCPU,AllocCPUS"]):
+            f = l.split("|") + ["", ""]
+            if len(f) < 6: continue
+            d = out.setdefault(f[0].split(".")[0], dict(state="", rss=0.0, minutes=0.0, cpu_min=0.0, cpus=0))
+            if "." not in f[0]: d.update(state=f[1].split()[0] if f[1].strip() else "", cpu_min=to_min(f[4]), cpus=int(f[5]) if f[5].isdigit() else 0)
             d.update(rss=max(d["rss"], mb(f[2])), minutes=max(d["minutes"], to_min(f[3])))
     return out
 
@@ -193,8 +193,9 @@ def history(root):
         u, (lp, lt) = use.get(r["jobid"], {}), log_usage(r.get("log"))
         state = u.get("state") or ("COMPLETED" if lp else "")
         if not state: continue
-        src = "+".join(n for n, v in (("log", lp), ("sacct", u.get("rss", 0))) if v)
-        out.setdefault(kind(r["key"]), []).append(dict(state=state, peak=max(lp, u.get("rss", 0.0)), minutes=max(lt, u.get("minutes", 0.0)), src=src or "none",
+        rss = u.get("rss", 0.0); el = max(lt, u.get("minutes", 0.0))
+        out.setdefault(kind(r["key"]), []).append(dict(state=state, peak=rss or lp, minutes=el, src="sacct MaxRSS" if rss else "log cgroup peak" if lp else "none",
+                                                       cores_used=u.get("cpu_min", 0.0) / u["minutes"] if u.get("minutes") and u.get("cpu_min") else 0.0,
                                                        mem_mb=float(r["mem_mb"]), minutes_req=float(r.get("minutes") or 0), in_bytes=float(r.get("in_bytes") or 0)))
     return out
 
@@ -211,6 +212,11 @@ def size_job(j, obs):
     oom = [2 * o["mem_mb"] for o in obs if o["state"] == "OUT_OF_MEMORY"]
     if oom and max(oom) > mem: mem, why = max(oom), f"2 x the {max(oom) / 2048:.1f} GB of a job that ran out of memory"
     t = max([t] + [2 * o["minutes_req"] for o in obs if o["state"] == "TIMEOUT"])
+    used = [o["cores_used"] for o in ok if o["cores_used"] > 0]
+    if used:
+        c2 = max(1, min(c, -int(-max(used) * CPU_SAFETY // 1)))
+        if c2 != c: why = f"{why}; cpus {c} -> {c2}: at most {max(used):.1f} cores used on average (sacct TotalCPU / Elapsed) x {CPU_SAFETY}"
+        c = c2
     final = int(min(MEM_MAX, max(MEM_MIN, mem)))
     j.update(cpus=c, mem_mb=final, minutes=int(min(TIME_MAX, max(TIME_MIN, t))), in_bytes=inb,
              sized=f"{why} = {mem / 1024:.1f} GB" + (f" !! above our cap, capped at {MEM_MAX // 1000} GB" if mem > MEM_MAX else ""))

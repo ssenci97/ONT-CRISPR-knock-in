@@ -85,7 +85,7 @@ def test_plan_paths_and_resources(e):
         assert all(p.startswith(ok) for p in j["outputs"] + [j["log"]]), j["key"]
         assert (j["cpus"], j["mem_mb"], j["minutes"]) == pl.RES[j["key"].split("_")[0]]
     a = keys(e)["alpine_A"]
-    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (16, 32000, 1440)
+    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (16, 8000, 1440)
 
 def test_plan_local_fastq_is_bound(e):
     assert keys(e)["filter_C"]["binds"] == [str(e.fq.parent)]
@@ -113,9 +113,9 @@ def test_fresh_submit(e):
 def test_resources_reach_sbatch(e):
     pl.submit(N, e.r)
     a = next(c["argv"] for c in e.calls() if c["key"] == "alpine_A")
-    assert a[a.index("-c") + 1] == "16" and "--mem=32000" in a and a[a.index("-t") + 1] == "1440"
+    assert a[a.index("-c") + 1] == "16" and "--mem=8000" in a and a[a.index("-t") + 1] == "1440"
     assert a[a.index("-p") + 1] == "GENOA" and a[a.index("-N") + 1] == "1" and a[a.index("--comment") + 1] == f"kv:{N}:alpine_A"
-    assert a[-2:] == ["16", "32000"]
+    assert a[-2:] == ["16", "8000"]
 
 def test_lanes_keep_the_analysis_within_the_cpu_budget(e):
     pl.submit(N, e.r)
@@ -147,9 +147,9 @@ def test_sizing_learns_from_finished_and_oom_jobs(e):
     e.put("sacct.txt", "77|COMPLETED|||\n77.batch||2048M|00:10:00\n78|OUT_OF_MEMORY||00:05:00\n")
     pl.submit(N, e.r)
     a = {c["key"]: c["argv"] for c in e.calls()}
-    assert "--mem=3584" in a["alpine_A"] and a["alpine_A"][a["alpine_A"].index("-t") + 1] == "30"
+    assert "--mem=3072" in a["alpine_A"] and a["alpine_A"][a["alpine_A"].index("-t") + 1] == "30"
     log = (e.root / "results" / N / "logs/node_pick.log").read_text()
-    assert "--mem=32000" in a["lungo_A"] and "peak 2.0 GB (sacct" in log and "best of 1 run(s)" in log and "capped at 32 GB" in log
+    assert "--mem=32000" in a["lungo_A"] and "peak 2.0 GB (sacct MaxRSS" in log and "best of 1 run(s)" in log and "capped at 32 GB" in log
 
 def test_sizing_triangulates_log_peak_and_input_size(e):
     d = e.root / "results/other"; (d / "logs").mkdir(parents=True)
@@ -157,14 +157,33 @@ def test_sizing_triangulates_log_peak_and_input_size(e):
     (d / "jobs.tsv").write_text("\t".join(pl.COLS) + f"\nfilter_X\ts\tl\t77\t{d}/logs/a.log\t\t8\t8000\t240\t{os.path.getsize(e.fq) / 2}\n")
     pl.submit(N, e.r)
     a = {c["key"]: c["argv"] for c in e.calls()}
-    assert "--mem=12800" in a["filter_C"] and a["filter_C"][a["filter_C"].index("-t") + 1] == "90"
-    assert "peak 4.0 GB (log" in (e.root / "results" / N / "logs/node_pick.log").read_text()
+    assert "--mem=10752" in a["filter_C"] and a["filter_C"][a["filter_C"].index("-t") + 1] == "90"
+    assert "peak 4.0 GB (log cgroup peak" in (e.root / "results" / N / "logs/node_pick.log").read_text()
+
+def test_sizing_prefers_sacct_rss_over_the_cache_inflated_log_peak(e):
+    d = e.root / "results/other"; (d / "logs").mkdir(parents=True)
+    (d / "logs/a.log").write_text("[SLURM-INFO] 2026-11-14 10:00:00 | elapsed 00:20:00 | max RSS 9.00 GB\n")
+    (d / "jobs.tsv").write_text("\t".join(pl.COLS) + f"\nalpine_X\ts\tl\t77\t{d}/logs/a.log\t\t16\t8000\t1440\t0\n")
+    e.put("sacct.txt", "77|COMPLETED|||01:00:00|16\n77.batch||2048M|00:20:00||\n")
+    pl.submit(N, e.r)
+    a = {c["key"]: c["argv"] for c in e.calls()}
+    assert "--mem=3072" in a["alpine_A"] and "peak 2.0 GB (sacct MaxRSS" in (e.root / "results" / N / "logs/node_pick.log").read_text()
+
+def test_sizing_learns_cores_down_from_cpu_use_never_up(e):
+    d = e.root / "results/other"; d.mkdir(parents=True)
+    (d / "jobs.tsv").write_text("\t".join(pl.COLS) + "\nalpine_X\ts\tl\t77\t/x\t\t16\t8000\t1440\t0\nlungo_X\ts\tl\t78\t/x\t\t16\t8000\t1440\t0\n")
+    e.put("sacct.txt", "77|COMPLETED|||02:30:00|16\n77.batch||2048M|01:00:00||\n78|COMPLETED|||40:00:00|16\n78.batch||2048M|02:00:00||\n")
+    pl.submit(N, e.r)
+    a = {c["key"]: c["argv"] for c in e.calls()}
+    assert a["alpine_A"][a["alpine_A"].index("-c") + 1] == "4" and a["lungo_A"][a["lungo_A"].index("-c") + 1] == "16"
+    log = (e.root / "results" / N / "logs/node_pick.log").read_text()
+    assert "cpus 16 -> 4: at most 2.5 cores used" in log and "lane(s) of 16 cpus" in log
 
 def test_done_jobs_keep_their_history_row_on_relaunch(e):
     pl.submit(N, e.r); e.fake_done(); os.remove(keys(e)["alpine_A"]["outputs"][0])
     pl.submit(N, e.r)
     rows = {r["key"]: r for r in pl.read_jobs(N, e.r)}
-    assert rows["filter_A"]["jobid"] == "1004" and rows["filter_A"]["mem_mb"] == "8000" and rows["alpine_A"]["jobid"] != "1009"
+    assert rows["filter_A"]["jobid"] == "1004" and rows["filter_A"]["mem_mb"] == "2000" and rows["alpine_A"]["jobid"] != "1009"
 
 ###################################### done check
 def test_all_done_submits_nothing(e):
@@ -426,7 +445,7 @@ def test_jobs_carry_their_metadata_target_and_ask(e):
     env = dict(l.split("=", 1) for l in (e.fake / f"env_{ids['alpine_A']}.txt").read_text().splitlines() if "=" in l)
     assert env["KV_META_TARGET"] == "A" and env["KV_META_STEP"] == "03_alpine"
     ask = __import__("json").loads(env["KV_ASK"])
-    assert ask["cpus"] == 16 and ask["mem_mb"] == 32000 and "default" in ask["why"]
+    assert ask["cpus"] == 16 and ask["mem_mb"] == 8000 and "default" in ask["why"]
     env = dict(l.split("=", 1) for l in (e.fake / f"env_{ids['refs']}.txt").read_text().splitlines() if "=" in l)
     assert env["KV_META_TARGET"] == "_analysis" and env["KV_META_STEP"] == "refs"
 
@@ -452,9 +471,9 @@ def test_fill_perf_adds_sacct_view_and_covers_jobs_that_died_before_writing(e):
     pl.fill_perf(N, e.r)
     a = json.load(open(meta / "A.json"))["steps"]["03_alpine"]["perf"]
     assert a["used"] == dict(exit=0) and a["sacct"]["state"] == "COMPLETED" and a["sacct"]["max_rss_gb"] == 8.0
-    assert a["sacct"]["cpu_eff"] == round(100 * 50 / (30 * 16), 1) and a["sacct"]["mem_eff"] == 25.6 and a["sacct"]["wait_min"] == 0.5
+    assert a["sacct"]["cpu_eff"] == round(100 * 50 / (30 * 16), 1) and a["sacct"]["mem_eff"] == 102.4 and a["sacct"]["wait_min"] == 0.5
     b = json.load(open(meta / "B.json"))["steps"]["04_lungo"]["perf"]
-    assert b["sacct"]["state"] == "OUT_OF_MEMORY" and b["asked"]["mem_mb"] == 32000 and b["used"] is None
+    assert b["sacct"]["state"] == "OUT_OF_MEMORY" and b["asked"]["mem_mb"] == 8000 and b["used"] is None
     assert not (meta / "_analysis.json").exists() or "refs" not in json.load(open(meta / "_analysis.json"))["steps"]
 
 def test_custom_skips_nodes_whose_half_is_below_the_widest_job(e, monkeypatch):
