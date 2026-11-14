@@ -85,7 +85,7 @@ def test_plan_paths_and_resources(e):
         assert all(p.startswith(ok) for p in j["outputs"] + [j["log"]]), j["key"]
         assert (j["cpus"], j["mem_mb"], j["minutes"]) == pl.RES[j["key"].split("_")[0]]
     a = keys(e)["alpine_A"]
-    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (16, 64000, 1440)
+    assert (a["cpus"], a["mem_mb"], a["minutes"]) == (16, 32000, 1440)
 
 def test_plan_local_fastq_is_bound(e):
     assert keys(e)["filter_C"]["binds"] == [str(e.fq.parent)]
@@ -113,9 +113,9 @@ def test_fresh_submit(e):
 def test_resources_reach_sbatch(e):
     pl.submit(N, e.r)
     a = next(c["argv"] for c in e.calls() if c["key"] == "alpine_A")
-    assert a[a.index("-c") + 1] == "16" and "--mem=64000" in a and a[a.index("-t") + 1] == "1440"
+    assert a[a.index("-c") + 1] == "16" and "--mem=32000" in a and a[a.index("-t") + 1] == "1440"
     assert a[a.index("-p") + 1] == "GENOA" and a[a.index("-N") + 1] == "1" and a[a.index("--comment") + 1] == f"kv:{N}:alpine_A"
-    assert a[-2:] == ["16", "64000"]
+    assert a[-2:] == ["16", "32000"]
 
 def test_lanes_keep_the_analysis_within_the_cpu_budget(e):
     pl.submit(N, e.r)
@@ -128,7 +128,7 @@ def test_lanes_keep_the_analysis_within_the_cpu_budget(e):
     chained = {k for k in ids if lane[k] or set(ids[d] for d in by[k]["deps"])}
     assert n == 2 and len(set(ids) - chained) <= n and sum(by[k]["cpus"] for k in heads) <= pl.BUDGET_CPUS
     log = (e.root / "results" / N / "logs/node_pick.log").read_text()
-    assert "2 lane(s) of 16 cpus (budget 32 cpus 256 GB)" in log and "default (no finished run yet)" in log
+    assert "2 lane(s) of 16 cpus (budget 32 cpus 64 GB)" in log and "default (no finished run yet)" in log
 
 def test_too_many_jobs_refused_before_any_sbatch(e, monkeypatch):
     monkeypatch.setattr(pl, "MAX_JOBS", 5)
@@ -148,7 +148,23 @@ def test_sizing_learns_from_finished_and_oom_jobs(e):
     pl.submit(N, e.r)
     a = {c["key"]: c["argv"] for c in e.calls()}
     assert "--mem=3584" in a["alpine_A"] and a["alpine_A"][a["alpine_A"].index("-t") + 1] == "30"
-    assert "--mem=128000" in a["lungo_A"] and "learned from 1 finished run(s)" in (e.root / "results" / N / "logs/node_pick.log").read_text()
+    log = (e.root / "results" / N / "logs/node_pick.log").read_text()
+    assert "--mem=32000" in a["lungo_A"] and "peak 2.0 GB (sacct" in log and "best of 1 run(s)" in log and "capped at 32 GB" in log
+
+def test_sizing_triangulates_log_peak_and_input_size(e):
+    d = e.root / "results/other"; (d / "logs").mkdir(parents=True)
+    (d / "logs/a.log").write_text("[SLURM-INFO] work\n[SLURM-INFO] 2026-11-14 10:00:00 | elapsed 00:20:00 | max RSS 4.00 GB\n")
+    (d / "jobs.tsv").write_text("\t".join(pl.COLS) + f"\nfilter_X\ts\tl\t77\t{d}/logs/a.log\t\t8\t8000\t240\t{os.path.getsize(e.fq) / 2}\n")
+    pl.submit(N, e.r)
+    a = {c["key"]: c["argv"] for c in e.calls()}
+    assert "--mem=12800" in a["filter_C"] and a["filter_C"][a["filter_C"].index("-t") + 1] == "90"
+    assert "peak 4.0 GB (log" in (e.root / "results" / N / "logs/node_pick.log").read_text()
+
+def test_done_jobs_keep_their_history_row_on_relaunch(e):
+    pl.submit(N, e.r); e.fake_done(); os.remove(keys(e)["alpine_A"]["outputs"][0])
+    pl.submit(N, e.r)
+    rows = {r["key"]: r for r in pl.read_jobs(N, e.r)}
+    assert rows["filter_A"]["jobid"] == "1004" and rows["filter_A"]["mem_mb"] == "8000" and rows["alpine_A"]["jobid"] != "1009"
 
 ###################################### done check
 def test_all_done_submits_nothing(e):

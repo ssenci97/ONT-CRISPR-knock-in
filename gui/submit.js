@@ -238,6 +238,7 @@ async function init() {
   renderInfo();
   toggleInfo(store.get("kv_info") !== "0");
   fill([]);
+  if (location.hash === "#perf") togglePerf(true);
   if (!exr.ok) status("No examples: this console server is older than the page (/api/examples not found). Stop it (ctrl-c) and start python3 src/gui_serve.py again.", true);
 }
 
@@ -306,6 +307,8 @@ async function submit() {
 }
 
 function tab(name) {
+  if (state.perf) togglePerf(false);
+  state.tab = name;
   for (const b of document.querySelectorAll("nav button")) b.classList.toggle("on", b.dataset.tab === name);
   for (const id of ["samples", "run", "results"]) $(`#tab-${id}`).hidden = id !== name;
   if (name === "run") refreshStatus();
@@ -411,6 +414,121 @@ async function launch() {
   await refreshStatus();
   rs.append(el("span", "muted", `launched ${body.started.map((x) => x.analysis).join(", ")} — switch with Existing`));
   for (const [n, errs] of Object.entries(body.errors || {})) rs.append(badge("failed", `${n} not started`), el("span", null, errs.join("; ")));
+}
+
+const pfmt = (v, d = 0) => (v === null || v === undefined ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
+const gb = (mb) => (mb ? `${pfmt(mb / 1024, mb < 10240 ? 1 : 0)} GB` : "—");
+
+function mini(pct, label, good = [60, 100]) {
+  const w = el("span", "mini"), b = el("span", "bar"), i = el("i");
+  const p = pct === null || pct === undefined ? null : Math.max(0, Math.min(100, pct));
+  i.style.width = `${p ?? 0}%`;
+  i.className = p === null ? "low" : pct > good[1] ? "bad" : pct >= good[0] ? "ok" : pct >= good[0] / 3 ? "warn" : "low";
+  b.append(i); w.append(b, el("em", null, label ?? (p === null ? "—" : `${pfmt(pct)}%`)));
+  return w;
+}
+
+function grid(head, rows) {
+  const wrap = el("div", "tbl"), t = el("table"), th = el("thead"), hr = el("tr"), tb = el("tbody");
+  head.forEach((h) => hr.append(el("th", null, h)));
+  th.append(hr);
+  for (const r of rows) {
+    const tr = el("tr");
+    for (const c of r) {
+      const td = el("td");
+      if (c instanceof Node) td.append(c); else if (c && typeof c === "object") { td.textContent = c.text; td.className = c.cls || ""; } else td.textContent = c ?? "—";
+      tr.append(td);
+    }
+    tb.append(tr);
+  }
+  t.append(th, tb); wrap.append(t);
+  return wrap;
+}
+
+function togglePerf(on) {
+  state.perf = on;
+  document.documentElement.dataset.theme = on ? "dark" : "light";
+  $("#perf-toggle").setAttribute("aria-pressed", String(on));
+  $("nav.seg").hidden = on;
+  $("#tab-perf").hidden = !on;
+  for (const id of ["samples", "run", "results"]) $(`#tab-${id}`).hidden = on || id !== (state.tab || "samples");
+  if (on) refreshPerf();
+}
+
+function renderParts(c) {
+  const box = $("#perf-parts");
+  box.textContent = "";
+  if (!c.available) { box.append(el("p", "muted", "sinfo not available here: start the console on the cluster login node.")); return; }
+  box.append(grid(["Partition", "Nodes", "States", "CPUs allocated", "Memory allocated", "Jobs run / wait", "Waiting CPUs", "Fit one analysis"],
+    c.partitions.map((p) => [p.partition, pfmt(p.nodes), Object.entries(p.states).map(([k, v]) => `${v} ${k}`).join(" · "),
+      mini(p.cpus ? (100 * p.alloc) / p.cpus : null, `${pfmt(p.alloc)} / ${pfmt(p.cpus)}`, [0, 85]), mini(p.mem_mb ? (100 * p.alloc_mb) / p.mem_mb : null, `${gb(p.alloc_mb)} / ${gb(p.mem_mb)}`, [0, 85]),
+      `${pfmt(p.running)} / ${pfmt(p.pending)}`, pfmt(p.pending_cpus), p.fit ? `${p.fit} node(s)` : { text: "none now", cls: "state-bad" }])));
+}
+
+function renderNodes(c, ours) {
+  const box = $("#perf-nodes");
+  box.textContent = "";
+  if (!c.available) { box.append(el("p", "muted", "—")); return; }
+  const by = {};
+  for (const n of c.nodes) (by[n.partitions[0]] = by[n.partitions[0]] || []).push(n);
+  for (const [p, nodes] of Object.entries(by)) {
+    const blk = el("div", "part-block"), g = el("div", "nodes");
+    blk.append(el("h4", null, `${p} · ${nodes.length} node(s)`));
+    for (const n of nodes) {
+      const st = n.state.replace(/[*~#!%$@^-]+$/, ""), d = el("div", `node${n.fits_budget ? " fit" : ""}${/down|drain|fail|maint|unk/.test(st) ? " down" : ""}${ours.has(n.node) ? " ours" : ""}`);
+      d.title = `${n.node} (${n.partitions.join(", ")}) ${n.state}: ${n.alloc}/${n.cpus} CPUs allocated, ${gb(n.alloc_mb)} / ${gb(n.mem_mb)} memory, load ${pfmt(n.load, 1)}`;
+      const cb = el("div", "bar"), ci = el("i"), mb = el("div", "bar"), mi = el("i");
+      ci.style.width = `${n.cpus ? (100 * n.alloc) / n.cpus : 0}%`; mi.style.width = `${n.mem_mb ? (100 * n.alloc_mb) / n.mem_mb : 0}%`; mi.className = "run";
+      cb.append(ci); mb.append(mi);
+      const l1 = el("div", "lab"), l2 = el("div", "lab");
+      l1.append(el("span", null, "CPU"), el("span", null, `${n.idle} free / ${n.cpus}`));
+      l2.append(el("span", null, "MEM"), el("span", null, `${gb(n.mem_mb - n.alloc_mb)} free`));
+      d.append(el("b", null, n.node), el("span", "st", `${st} · load ${pfmt(n.load, 1)}`), cb, l1, mb, l2);
+      g.append(d);
+    }
+    blk.append(g); box.append(blk);
+  }
+}
+
+function renderRuns(r) {
+  const jobs = r.jobs, done = jobs.filter((j) => j.elapsed_min > 0), med = (xs) => { xs = xs.filter((x) => x !== null && x !== undefined).sort((a, b) => a - b); return xs.length ? xs[Math.floor(xs.length / 2)] : null; };
+  const k = $("#perf-kpi");
+  k.textContent = "";
+  for (const [v, l] of [[pfmt(jobs.reduce((a, j) => a + j.core_h, 0), 1), "core-hours used"], [pfmt(jobs.length), "jobs in sacct"],
+    [med(done.map((j) => j.cpu_eff)) === null ? "—" : `${pfmt(med(done.map((j) => j.cpu_eff)))}%`, "median CPU efficiency"],
+    [med(done.map((j) => j.mem_eff)) === null ? "—" : `${pfmt(med(done.map((j) => j.mem_eff)))}%`, "median memory used / asked"],
+    [med(jobs.map((j) => j.wait_min)) === null ? "—" : `${pfmt(med(jobs.map((j) => j.wait_min)), 1)} min`, "median queue wait"],
+    [pfmt(jobs.filter((j) => ["OUT_OF_MEMORY", "TIMEOUT"].includes(j.state)).length), "out of memory / time"]]) {
+    const c = el("div", "kpi"); c.append(el("b", null, v), el("span", null, l)); k.append(c);
+  }
+  const bad = (n) => (n ? { text: pfmt(n), cls: "state-bad" } : "0");
+  $("#perf-tools").textContent = "";
+  $("#perf-tools").append(r.tools.length ? grid(["Tool", "Jobs", "OK", "Failed", "OOM", "Timeout", "CPU eff.", "Mem used / asked", "Peak mem", "Median run", "Median wait", "Core-h"],
+    r.tools.map((t) => [t.name, pfmt(t.n), pfmt(t.completed), bad(t.failed), bad(t.oom), bad(t.timeout), mini(t.cpu_eff), mini(t.mem_eff), gb(t.max_used_mb), t.elapsed_min ? `${pfmt(t.elapsed_min, 1)} min` : "—", t.wait_min !== null ? `${pfmt(t.wait_min, 1)} min` : "—", pfmt(t.core_h, 1)])) : el("p", "muted", "No finished jobs in sacct yet."));
+  $("#perf-analyses").textContent = "";
+  $("#perf-analyses").append(r.analyses.length ? grid(["Analysis", "Jobs", "OK", "Failed", "CPU eff.", "Mem used / asked", "Core-h", "First start", "Last end", "Nodes"],
+    r.analyses.map((a) => [a.name, pfmt(a.n), pfmt(a.completed), bad(a.failed + a.oom + a.timeout), mini(a.cpu_eff), mini(a.mem_eff), pfmt(a.core_h, 1), a.first || "—", a.last || "—", a.nodes.join(", ") || "—"])) : el("p", "muted", "—"));
+  const sel = $("#perf-filter"), keep = sel.value;
+  sel.textContent = ""; sel.append(new Option("All analyses", ""));
+  for (const a of r.analyses) sel.append(new Option(a.name, a.name));
+  sel.value = keep;
+  const shown = jobs.filter((j) => !sel.value || j.analysis === sel.value);
+  $("#perf-jobs").textContent = "";
+  $("#perf-jobs").append(shown.length ? grid(["Analysis", "Job", "State", "Node", "CPUs", "CPU eff.", "Memory used / asked", "Time used / asked", "Wait", "Core-h"],
+    shown.map((j) => [j.analysis, j.key, ["COMPLETED", "RUNNING", "PENDING"].includes(j.state) ? j.state : { text: j.state, cls: "state-bad" }, j.node || "—", pfmt(j.cpus),
+      mini(j.cpu_eff), mini(j.mem_eff, `${gb(j.used_mb)} / ${gb(j.req_mb)}`), mini(j.time_eff, `${pfmt(j.elapsed_min)} / ${pfmt(j.req_min)} min`, [5, 100]),
+      j.wait_min !== null ? `${pfmt(j.wait_min, 1)} min` : "—", pfmt(j.core_h, 2)])) : el("p", "muted", "—"));
+}
+
+async function refreshPerf() {
+  $("#perf-at").textContent = "loading…";
+  const p = await (await fetch("/api/perf")).json();
+  state.perfData = p;
+  $("#perf-at").textContent = `updated ${p.at}`;
+  $("#perf-budget").textContent = `${p.cluster.budget.cpus} CPUs + ${gb(p.cluster.budget.mem_mb)} free`;
+  renderParts(p.cluster);
+  renderNodes(p.cluster, new Set(p.runs.jobs.filter((j) => ["RUNNING", "PENDING"].includes(j.state) && j.node).map((j) => j.node)));
+  renderRuns(p.runs);
 }
 
 const UNCL = "Unclassified";
@@ -722,6 +840,10 @@ async function refreshResults() {
 }
 
 for (const b of document.querySelectorAll("nav button")) b.addEventListener("click", () => tab(b.dataset.tab));
+$("#perf-toggle").addEventListener("click", () => togglePerf(!state.perf));
+$("#perf-refresh").addEventListener("click", refreshPerf);
+$("#perf-filter").addEventListener("change", () => state.perfData && renderRuns(state.perfData.runs));
+setInterval(() => { if (state.perf && $("#perf-auto").checked) refreshPerf(); }, 30000);
 $("#toggle-info").addEventListener("click", () => toggleInfo($("#info").hidden));
 $("#clear").addEventListener("click", clearSamples);
 $("#add").addEventListener("click", () => add());

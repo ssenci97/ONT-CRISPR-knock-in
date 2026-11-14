@@ -19,7 +19,7 @@
 | cluster | `python3` (PyYAML optional), `sbatch`, `singularity` (`module load singularity`), `curl` |
 | workstation (build) | `docker` or `podman` |
 | disk | room for the downloaded reads, results and the image |
-| resources | CPUs per tool in `RES` (`src/pipeline.py`); memory/time learned from `sacct` of earlier runs; ≤ 32 cores / 256 GB per analysis on one node from `get_best_node`; ≤ 100 jobs per launch |
+| resources | CPUs per tool in `RES` (`src/pipeline.py`); memory/time learned from `sacct` of earlier runs; ≤ 32 cores / 64 GB per analysis (≤ 32 GB per job) on one node from `get_best_node`; ≤ 100 jobs per launch |
 
 ## 3. Layout
 

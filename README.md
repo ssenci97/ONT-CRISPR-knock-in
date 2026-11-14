@@ -159,6 +159,7 @@ The screenshot below is a finished run of the example data.
 | resume | the same name again: done jobs are kept, the rest (and everything downstream) is resubmitted |
 | stop | `pipeline.py <name> --stop`: cancels this run's jobs (from `jobs.tsv` and any queued job tagged `kv:<name>:`), also while a launch is still submitting; re-checks up to 3 times and lists any job that survived |
 | stop all | every live job of every analysis |
+| **Performance** (top right) | dark page: partitions and nodes from `sinfo`/`squeue` (counts only, no user data; ring = node with 32 cores + 64 GB free, dot = node running our jobs), then our jobs from `sacct`: core-hours, CPU efficiency, memory and time used vs asked, queue wait, out-of-memory/timeouts, per tool, per analysis and per job; refreshes every 30 s; `#perf` in the URL opens it directly |
 | launch lock | one Run at a time; the button stays disabled while `sbatch` calls are running |
 
 ### Results
@@ -193,14 +194,14 @@ The Results tab on the example data, in the **one plot per sample** layout.
 Each **Run on SLURM** (or `pipeline.py <name>`):
 
 1. **Guards.** It refuses to submit more than 100 jobs in one launch (split the samples), or to push your own queue past 200 jobs.
-2. **Budget.** An analysis never holds more than **32 cores and 256 GB** at once: half a GENOA node (64 cores, 512 GiB) or a quarter of an EPYC node. Jobs are put in lanes of the widest job (16 cores for ALPINE and CRISPRLungo, so 2 lanes). Each job also waits for the previous job in its lane (`--dependency=afterok:<real deps>,afterany:<lane predecessor>`).
+2. **Budget.** An analysis never holds more than **32 cores and 64 GB** at once (2 lanes × at most 32 GB per job; one lane = 32 GB). Jobs are put in lanes of the widest job (16 cores for ALPINE and CRISPRLungo, so 2 lanes). Each job also waits for the previous job in its lane (`--dependency=afterok:<real deps>,afterany:<lane predecessor>`).
 3. **One node.** `get_best_node` (`src/best_node.sh`, through `src/node_pick.sh`) is asked once for an idle or mixed CPU node with that budget free. It falls back to the biggest single job, and every job is submitted with `-p <partition> -w <node> -N 1`. Partitions without enough walltime, and DGX, GPU, H100 and UPDATE, are skipped. If no node fits, the jobs queue on GENOA without a pin. `NODE_PICK=0` turns the pick off.
-4. **Memory and time.** Every `jobs.tsv` row records the CPUs, memory, time and input bytes requested. Before submitting, `sacct` (MaxRSS, Elapsed, State) is read for every earlier job of the same tool in any analysis:
-   - memory = 1.5 × the highest peak seen + 512 MB (scaled up if this input is larger);
-   - time = 2 × the longest run + 10 min, kept within 15 min–48 h;
-   - a job that ended `OUT_OF_MEMORY` or `TIMEOUT` doubles what it had asked for.
+4. **Memory and time.** Three things are combined for each job:
+   - the **sample's input size**, recorded in `jobs.tsv` with every job;
+   - the **real peak memory** of earlier jobs of the same tool in any analysis, taken as the larger of the `max RSS` printed in the job log footer and `sacct` MaxRSS;
+   - **our cap** of 32 GB per job.
 
-   With no history yet, the defaults in `RES` are used. Memory stays within 1–256 GB.
+   Memory = 1.5 × the peak, scaled up by this input ÷ that input (never down), + 0.5 GB, taking the run that gives the highest value. A job that ran out of memory doubles its last request. The result is clamped to 1–32 GB, and the log says so when the cap cuts it. Time = 2 × the longest run (scaled the same way) + 10 min, kept within 15 min–48 h. With no history yet, the defaults in `RES` are used. Every choice and its reasoning is written to `logs/node_pick.log`. Jobs skipped as done keep their `jobs.tsv` row, so their history is not lost.
 
 ## Pipeline
 

@@ -13,6 +13,7 @@ body { margin: 0; padding: 0 16px 72px; background: var(--bg); color: var(--fg);
        -webkit-font-smoothing: antialiased; }
 header, main { max-width: 960px; margin: 0 auto; }
 header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 32px 0 20px; }
+.head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
 h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
 h3 { font-size: 16px; font-weight: 600; color: var(--fg); margin: 26px 4px 8px; text-transform: none; }
 code, pre { font-family: var(--mono); }
@@ -174,3 +175,47 @@ button.link { border: 0; background: none; color: var(--blue); font: 500 14px va
 .chart-dl { margin: 0 0 6px; justify-content: flex-end; }
 .chart-svg { display: block; max-width: 100%; height: auto; }
 @media (max-width: 560px) { .ctl-row { grid-template-columns: 1fr; gap: 4px; } }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0b0d; --card: #1c1c1e; --fill: #2c2c2e; --fg: #f2f2f7; --muted: #a8a8ae; --line: #48484a; --hair: #38383a;
+  --blue: #3e9bff; --purple: #c38af0; --red: #ff6b5e; --black: #f2f2f7;
+  --shadow: 0 0 0 1px #2a2a2d;
+}
+:root[data-theme="dark"] .seg { background: #2c2c2e; }
+:root[data-theme="dark"] .seg button.on { background: #48484a; }
+:root[data-theme="dark"] .pill { background: #2c2c2e; }
+:root[data-theme="dark"] .pill.blue { background: var(--blue); color: #000; }
+:root[data-theme="dark"] .pill.plain, :root[data-theme="dark"] .pill.red { background: transparent; }
+:root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] textarea { background-color: #2c2c2e; color: var(--fg); }
+:root[data-theme="dark"] .badge.running { background: #0d3357; color: #9fd0ff; }
+:root[data-theme="dark"] .badge.done { background: #0f3d1f; color: #8fe0a8; }
+:root[data-theme="dark"] .badge.failed { background: #4a1f0d; color: #ffb38f; }
+:root[data-theme="dark"] .badge.cancelled, :root[data-theme="dark"] .badge.stopped { background: #3d3108; color: #f0d58a; }
+:root[data-theme="dark"] .switch span { background: #48484a; }
+.perf-btn[aria-pressed="true"], :root[data-theme="dark"] .perf-btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.small-note { font-size: 13px; font-weight: 400; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px 16px; }
+.kpi b { display: block; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi span { color: var(--muted); font-size: 13px; }
+.mini { display: inline-flex; align-items: center; gap: 6px; min-width: 110px; }
+.mini .bar { height: 8px; min-width: 44px; }
+#tab-perf table { font-size: 14px; }
+#tab-perf th, #tab-perf td { padding: 7px 8px; }
+:root[data-theme="dark"] .tbl { scrollbar-color: #48484a transparent; }
+.mini em { font-style: normal; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar i.warn { background: #e0a526; }
+.bar i.low { background: #8e8e93; }
+.part-block { margin-bottom: 14px; }
+.part-block h4 { margin: 4px 0 8px; font-size: 15px; }
+.nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.node { border-radius: 10px; background: var(--fill); padding: 8px 10px; font-size: 12.5px; position: relative; }
+.node.fit { box-shadow: inset 0 0 0 2px #1b9e4b; }
+.node.down { opacity: .5; }
+.node.ours::after { content: ""; position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); }
+.node b { display: block; font-size: 13px; font-family: var(--mono); }
+.node .st { color: var(--muted); }
+.node .bar { height: 6px; margin: 5px 0 2px; }
+.node .lab { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
+td.state-bad { color: var(--red); font-weight: 600; }

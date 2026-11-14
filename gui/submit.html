@@ -18,13 +18,17 @@
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .5-8 6 6 0 0 0-11.5-1.3A4.7 4.7 0 0 0 7 18.5z"/></symbol>
   <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M10 4l1.6 4.4L16 10l-4.4 1.6L10 16l-1.6-4.4L4 10l4.4-1.6zM17.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.5 17a8.5 8.5 0 1 1 15 0M12 13.5l4-4.5M12 13.5a1.2 1.2 0 1 0 .01 0"/></symbol>
   <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-tray" viewBox="0 0 24 24"><path d="M4 13.5l2.2-7.2A2 2 0 0 1 8.1 5h7.8a2 2 0 0 1 1.9 1.3l2.2 7.2V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18zM4 13.5h4.5l1 2h5l1-2H20"/></symbol>
 </svg>
 
 <header>
   <div class="brand"><h1>KNOCKIN-VAL</h1><p id="runtime" class="runtime">…</p></div>
-  <nav class="seg" role="tablist"><button type="button" data-tab="samples" class="on">Samples</button><button type="button" data-tab="run">Run</button><button type="button" data-tab="results">Results</button></nav>
+  <div class="head-right">
+    <nav class="seg" role="tablist"><button type="button" data-tab="samples" class="on">Samples</button><button type="button" data-tab="run">Run</button><button type="button" data-tab="results">Results</button></nav>
+    <button id="perf-toggle" type="button" class="pill perf-btn" aria-pressed="false" title="Performance: cluster nodes and job efficiency"><svg class="ic"><use href="#i-gauge"/></svg><span>Performance</span></button>
+  </div>
 </header>
 
 <main>
@@ -71,6 +75,28 @@
     <pre id="nodelog" class="note small">—</pre>
     <h3>Run log</h3>
     <pre id="runlog" class="note small">—</pre>
+  </section>
+
+  <section id="tab-perf" hidden>
+    <div class="toolbar">
+      <span id="perf-at" class="muted">…</span>
+      <span class="grow"></span>
+      <label class="switch"><input type="checkbox" id="perf-auto" checked><span></span>Auto-refresh 30 s</label>
+      <button id="perf-refresh" type="button" class="pill plain"><svg class="ic"><use href="#i-reload"/></svg>Refresh</button>
+    </div>
+    <h3>Cluster partitions <span class="muted small-note">· from sinfo / squeue, counts only, no user data</span></h3>
+    <div id="perf-parts" class="card">—</div>
+    <h3>Nodes <span class="muted small-note">· ring = fits one analysis (<span id="perf-budget"></span>) · dot = runs our jobs</span></h3>
+    <div id="perf-nodes" class="card">—</div>
+    <h3>Our jobs <span class="muted small-note">· sacct of every analysis in results/</span></h3>
+    <div id="perf-kpi" class="kpis"></div>
+    <h3>Per tool</h3>
+    <div id="perf-tools" class="card">—</div>
+    <h3>Per analysis</h3>
+    <div id="perf-analyses" class="card">—</div>
+    <h3>Jobs</h3>
+    <div class="toolbar"><select id="perf-filter" class="inline"><option value="">All analyses</option></select></div>
+    <div id="perf-jobs" class="card">—</div>
   </section>
 
   <section id="tab-results" hidden>

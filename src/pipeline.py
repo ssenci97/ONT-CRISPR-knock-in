@@ -13,10 +13,11 @@ LIVE = {"PENDING", "RUNNING", "CONFIGURING", "COMPLETING", "SUSPENDED"}
 FASTQ_EXT = (".fastq", ".fastq.gz", ".fq", ".fq.gz")
 BP_RE = re.compile(r"^[A-Za-z0-9]+$")
 FOOTER = re.compile(r"\| elapsed [0-9]")
+PEAK_RE = re.compile(r"\| elapsed ([0-9:]+) \| max RSS ([0-9.]+) GB")
 COLS = ["key", "step", "label", "jobid", "log", "node", "cpus", "mem_mb", "minutes", "in_bytes"]
-RES = dict(ena=(1, 1000, 15), download=(8, 16000, 720), filter=(8, 8000, 240), refs=(1, 4000, 60), alpine=(16, 64000, 1440), lungo=(16, 64000, 1440), summary=(1, 4000, 30))
-PARTITION, BUDGET_CPUS, BUDGET_MEM_MB = "GENOA", 32, 256000
-MEM_MIN, MEM_MAX, TIME_MIN, TIME_MAX, SAFETY = 1000, BUDGET_MEM_MB, 15, 2880, 1.5
+RES = dict(ena=(1, 1000, 15), download=(8, 16000, 720), filter=(8, 8000, 240), refs=(1, 4000, 60), alpine=(16, 32000, 1440), lungo=(16, 32000, 1440), summary=(1, 4000, 30))
+PARTITION, BUDGET_CPUS, BUDGET_MEM_MB = "GENOA", 32, 64000
+MEM_MIN, MEM_MAX, TIME_MIN, TIME_MAX, SAFETY = 1000, 32000, 15, 2880, 1.5
 MAX_JOBS, MAX_USER_JOBS, STOP_WAIT, STOP_PAUSE = 100, 200, 120, 2
 REF_FILES = ("TRAC_WT.fa", "TRAC_KI.fa", "CAR_insert.fa", "alpine/ref.fa", "alpine/config.tsv", "design.json")
 
@@ -173,28 +174,43 @@ def usage(ids):
             d.update(rss=max(d["rss"], mb(f[2])), minutes=max(d["minutes"], to_min(f[3])))
     return out
 
+def log_usage(path):
+    if not path or not os.path.isfile(path): return 0.0, 0.0
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END); f.seek(max(0, f.tell() - 8192)); m = PEAK_RE.findall(f.read().decode("utf-8", "replace"))
+    return (float(m[-1][1]) * 1024, to_min(m[-1][0])) if m else (0.0, 0.0)
+
 def history(root):
     rows = [r for p in glob.glob(f"{root}/results/*/jobs.tsv") for r in read_jobs(os.path.basename(os.path.dirname(p)), root) if r.get("jobid") and r.get("mem_mb")]
     use, out = usage([r["jobid"] for r in rows]), {}
     for r in rows:
-        u = use.get(r["jobid"])
-        if u: out.setdefault(kind(r["key"]), []).append(dict(u, mem_mb=float(r["mem_mb"]), minutes_req=float(r.get("minutes") or 0), in_bytes=float(r.get("in_bytes") or 0)))
+        u, (lp, lt) = use.get(r["jobid"], {}), log_usage(r.get("log"))
+        state = u.get("state") or ("COMPLETED" if lp else "")
+        if not state: continue
+        src = "+".join(n for n, v in (("log", lp), ("sacct", u.get("rss", 0))) if v)
+        out.setdefault(kind(r["key"]), []).append(dict(state=state, peak=max(lp, u.get("rss", 0.0)), minutes=max(lt, u.get("minutes", 0.0)), src=src or "none",
+                                                       mem_mb=float(r["mem_mb"]), minutes_req=float(r.get("minutes") or 0), in_bytes=float(r.get("in_bytes") or 0)))
     return out
 
 def size_job(j, obs):
     c, m0, t0 = RES[kind(j["key"])]
     inb = sum(size(p) for p in j["inputs"])
-    ok = [o for o in obs if o["state"] == "COMPLETED" and o["rss"] > 0]
+    ok = [o for o in obs if o["state"] == "COMPLETED" and o["peak"] > 0]
     scale = lambda o: max(1.0, inb / o["in_bytes"]) if o["in_bytes"] and inb else 1.0
-    mem = SAFETY * max(o["rss"] * scale(o) for o in ok) + 512 if ok else m0
-    t = 2 * max(o["minutes"] * scale(o) for o in ok) + 10 if ok else t0
-    mem = max([mem] + [2 * o["mem_mb"] for o in obs if o["state"] == "OUT_OF_MEMORY"])
+    if ok:
+        ref = max(ok, key=lambda o: o["peak"] * scale(o))
+        mem, why = SAFETY * ref["peak"] * scale(ref) + 512, f"peak {ref['peak'] / 1024:.1f} GB ({ref['src']}, input {ref['in_bytes'] / 1e9:.2f} GB) x input ratio {scale(ref):.2f} (this input {inb / 1e9:.2f} GB) x {SAFETY} + 0.5 GB, best of {len(ok)} run(s)"
+        t = 2 * max(o["minutes"] * scale(o) for o in ok) + 10
+    else: mem, why, t = m0, "default (no finished run yet)", t0
+    oom = [2 * o["mem_mb"] for o in obs if o["state"] == "OUT_OF_MEMORY"]
+    if oom and max(oom) > mem: mem, why = max(oom), f"2 x the {max(oom) / 2048:.1f} GB of a job that ran out of memory"
     t = max([t] + [2 * o["minutes_req"] for o in obs if o["state"] == "TIMEOUT"])
-    j.update(cpus=c, mem_mb=int(min(MEM_MAX, max(MEM_MIN, mem))), minutes=int(min(TIME_MAX, max(TIME_MIN, t))), in_bytes=inb,
-             sized=f"learned from {len(ok)} finished run(s)" if ok else "default (no finished run yet)")
+    final = int(min(MEM_MAX, max(MEM_MIN, mem)))
+    j.update(cpus=c, mem_mb=final, minutes=int(min(TIME_MAX, max(TIME_MIN, t))), in_bytes=inb,
+             sized=f"{why} = {mem / 1024:.1f} GB" + (f" !! above our cap, capped at {MEM_MAX // 1000} GB" if mem > MEM_MAX else ""))
 
 def lanes(jobs):
-    w = max(j["cpus"] for j in jobs); n = max(1, BUDGET_CPUS // w)
+    w = max(j["cpus"] for j in jobs); n = max(1, min(BUDGET_CPUS // w, BUDGET_MEM_MB // max(j["mem_mb"] for j in jobs)))
     load, tail, out = [0.0] * n, [""] * n, {}
     for j in jobs:
         k = min(range(n), key=load.__getitem__); out[j["key"]] = tail[k]; tail[k] = j["key"]; load[k] += j["minutes"]
@@ -258,8 +274,9 @@ def launch(name, root):
     plog = [f"[PYTHON-INFO] {datetime.datetime.now():%F %T} launch {name}: {len(todo_jobs)} job(s) in {n} lane(s) of {w} cpus (budget {BUDGET_CPUS} cpus {BUDGET_MEM_MB // 1000} GB), {why}"] + [f"[PYTHON-INFO]   {j['key']}: {j['cpus']} cpus {j['mem_mb']} MB {j['minutes']} min ({j['sized']})" for j in todo_jobs]
     os.makedirs(f"{d}/logs", exist_ok=True); open(f"{d}/logs/node_pick.log", "a").write("\n".join(plog) + "\n")
     for l in plog[:1]: log(l.split("] ", 1)[1])
+    before = {r["key"]: r for r in read_jobs(name, root)}
     for j in jobs:
-        if j["key"] not in run: out.append(dict(j, state="done", jobid="", node="")); continue
+        if j["key"] not in run: out.append(dict(j, **{k: v for k, v in before.get(j["key"], {}).items() if k in ("jobid", "node", "cpus", "mem_mb", "minutes", "in_bytes") and v}, state="done") if j["key"] in before else dict(j, state="done", jobid="", node="")); continue
         if os.path.exists(f"{d}/.stop"):
             if ids: subprocess.run(["scancel"] + list(ids.values()), capture_output=True)
             write_jobs(name, root, out); raise RuntimeError(f"stopped while submitting: {len(ids)} submitted job(s) cancelled")

@@ -205,3 +205,25 @@ def test_run_is_refused_without_sbatch(server, monkeypatch):
     monkeypatch.setattr(g, "runtime", lambda: dict(sbatch=False, apptainer="x", sif=None, engine="", node_pick=False))
     body, code = post(f"{base}/api/run", analysis="run_one")
     assert code == 400 and "sbatch" in body["errors"][0]
+
+FAKE_SINFO = """#!/bin/sh
+echo "genoa01 GENOA* mix 16/48/0/64 512000 100000 3.20"
+echo "genoa02 GENOA idle 0/64/0/64 512000 0 0.01"
+echo "thin001 THIN alloc 24/0/0/24 768000 700000 23.9"
+"""
+
+def test_perf_reports_nodes_and_job_efficiency_without_user_data(server):
+    base, tmp = server
+    (tmp / "bin/sinfo").write_text(FAKE_SINFO); (tmp / "bin/sinfo").chmod(0o755)
+    post(f"{base}/api/run", analysis="run_one")
+    jid = jobs_tsv(tmp)["alpine_A"]
+    (tmp / "bin/sacct.txt").write_text(f"{jid}|COMPLETED|01:00:00|08:00:00||16|64000M|2026-11-14T10:00:00|2026-11-14T10:30:00|2026-11-14T11:30:00|genoa01\n"
+                                       f"{jid}.batch||01:00:00|08:00:00|16G||||||\n")
+    p = get(f"{base}/api/perf")
+    c, parts = p["cluster"], {x["partition"]: x for x in p["cluster"]["partitions"]}
+    assert [n["node"] for n in c["nodes"]] == ["genoa01", "genoa02", "thin001"] and parts["GENOA"]["fit"] == 2 and parts["THIN"]["fit"] == 0
+    assert parts["GENOA"]["cpus"] == 128 and parts["GENOA"]["alloc"] == 16
+    j = next(x for x in p["runs"]["jobs"] if x["key"] == "alpine_A")
+    assert (j["cpu_eff"], j["mem_eff"], j["wait_min"], j["core_h"], j["node"]) == (50.0, 51.2, 30.0, 16.0, "genoa01")
+    assert p["runs"]["tools"][0]["name"] == "alpine" and p["runs"]["analyses"][0]["core_h"] == 16.0
+    assert "user" not in json.dumps(c).lower()

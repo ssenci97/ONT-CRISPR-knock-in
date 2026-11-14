@@ -276,6 +276,84 @@ def status(name):
                 progress=progress(steps), queue=queue(live), steps=steps,
                 node_log=tail(f"{RESULTS}/{name}/logs/node_pick.log", 20) if name else "", log=tail(run_log(name)) if name else "")
 
+###################################### performance
+NODE_FMT = "NodeList:40,Partition:24,StateCompact:12,CPUsState:24,Memory:14,AllocMem:14,CPUsLoad:10"
+PERF_FIELDS = "JobID,State,Elapsed,TotalCPU,MaxRSS,AllocCPUS,ReqMem,Submit,Start,End,NodeList"
+
+def num(v, cast=float):
+    try: return cast(v)
+    except (TypeError, ValueError): return None
+
+def when(v):
+    try: return datetime.datetime.fromisoformat(v)
+    except (TypeError, ValueError): return None
+
+def cluster():
+    nodes = {}
+    for l in pipeline.sh(["sinfo", "-N", "-h", "-O", NODE_FMT]):
+        f = l.split()
+        if len(f) < 6 or f[3].count("/") != 3: continue
+        a, i, o, t = (num(x, int) or 0 for x in f[3].split("/"))
+        n = nodes.setdefault(f[0], dict(node=f[0], partitions=[], state=f[2], cpus=t, alloc=a, idle=i, other=o, mem_mb=num(f[4], int) or 0, alloc_mb=int(num(f[5]) or 0), load=num(f[6]) if len(f) > 6 else None))
+        if f[1].rstrip("*") not in n["partitions"]: n["partitions"].append(f[1].rstrip("*"))
+    for n in nodes.values():
+        n["fits_budget"] = n["state"].rstrip("*~#!%$@^-") in ("idle", "mix", "mixed") and n["idle"] >= pipeline.BUDGET_CPUS and n["mem_mb"] - n["alloc_mb"] >= pipeline.BUDGET_MEM_MB
+    q = {}
+    for l in pipeline.sh(["squeue", "-h", "-o", "%P|%T|%C"]):
+        p, _, rest = l.partition("|"); st, _, c = rest.partition("|")
+        d = q.setdefault(p.rstrip("*"), dict(running=0, pending=0, pending_cpus=0))
+        if st == "RUNNING": d["running"] += 1
+        elif st == "PENDING": d["pending"] += 1; d["pending_cpus"] += num(c, int) or 0
+    parts = {}
+    for n in nodes.values():
+        for p in n["partitions"]:
+            d = parts.setdefault(p, dict(partition=p, nodes=0, states={}, cpus=0, alloc=0, mem_mb=0, alloc_mb=0, fit=0))
+            st = n["state"].rstrip("*~#!%$@^-")
+            d["nodes"] += 1; d["states"][st] = d["states"].get(st, 0) + 1; d["fit"] += n["fits_budget"]
+            for k in ("cpus", "alloc", "mem_mb", "alloc_mb"): d[k] += n[k]
+    for p, d in parts.items(): d.update(q.get(p, dict(running=0, pending=0, pending_cpus=0)))
+    return dict(nodes=sorted(nodes.values(), key=lambda n: (n["partitions"][0], n["node"])), partitions=sorted(parts.values(), key=lambda d: d["partition"]),
+                budget=dict(cpus=pipeline.BUDGET_CPUS, mem_mb=pipeline.BUDGET_MEM_MB), available=bool(nodes))
+
+def job_perf():
+    rows = [dict(r, analysis=a["name"]) for a in analyses() for r in pipeline.read_jobs(a["name"], ROOT) if r.get("jobid")]
+    acct, ids = {}, [r["jobid"] for r in rows]
+    for i in range(0, len(ids), 200):
+        for l in pipeline.sh(["sacct", "-n", "-P", "-j", ",".join(ids[i:i + 200]), "-o", PERF_FIELDS]):
+            f = l.split("|")
+            if len(f) < 11: continue
+            d = acct.setdefault(f[0].split(".")[0], dict(rss=0.0, cpu=0.0, elapsed=0.0))
+            if "." not in f[0]: d.update(state=f[1].split()[0] if f[1].strip() else "", cpus=num(f[5], int), req=pipeline.mb(f[6]), submit=when(f[7]), start=when(f[8]), end=when(f[9]), node=f[10])
+            d.update(rss=max(d["rss"], pipeline.mb(f[4])), cpu=max(d["cpu"], pipeline.to_min(f[3])), elapsed=max(d["elapsed"], pipeline.to_min(f[2])))
+    jobs = []
+    for r in rows:
+        a = acct.get(r["jobid"])
+        if not a or "state" not in a: continue
+        a["rss"] = max(a["rss"], pipeline.log_usage(r.get("log"))[0])
+        cpus, req = a["cpus"] or num(r.get("cpus"), int) or 1, num(r.get("mem_mb")) or a["req"] or 0
+        el, rq_min = a["elapsed"], num(r.get("minutes"))
+        jobs.append(dict(analysis=r["analysis"], key=r["key"], tool=pipeline.kind(r["key"]), jobid=r["jobid"], state=a["state"], node=a["node"] if a["node"] not in ("None assigned", "") else "",
+                         cpus=cpus, req_mb=round(req), used_mb=round(a["rss"]), mem_eff=round(100 * a["rss"] / req, 1) if req and a["rss"] else None,
+                         elapsed_min=round(el, 1), req_min=rq_min, time_eff=round(100 * el / rq_min, 1) if rq_min and el else None,
+                         cpu_eff=round(100 * a["cpu"] / (el * cpus), 1) if el and a["cpu"] and a["state"] not in LIVE else None,
+                         wait_min=round((a["start"] - a["submit"]).total_seconds() / 60, 1) if a["start"] and a["submit"] else None,
+                         core_h=round(el * cpus / 60, 2), start=f"{a['start']:%F %T}" if a["start"] else "", end=f"{a['end']:%F %T}" if a["end"] else ""))
+    med = lambda xs: (sorted(xs)[len(xs) // 2] if xs else None)
+    def agg(group):
+        out = {}
+        for j in jobs: out.setdefault(j[group], []).append(j)
+        return [dict(name=k, n=len(v), completed=sum(j["state"] == "COMPLETED" for j in v), failed=sum(j["state"] in FAILED - {"OUT_OF_MEMORY", "TIMEOUT"} for j in v),
+                     oom=sum(j["state"] == "OUT_OF_MEMORY" for j in v), timeout=sum(j["state"] == "TIMEOUT" for j in v),
+                     cpu_eff=med([j["cpu_eff"] for j in v if j["cpu_eff"] is not None]), mem_eff=med([j["mem_eff"] for j in v if j["mem_eff"] is not None]),
+                     max_used_mb=max((j["used_mb"] for j in v), default=0), elapsed_min=med([j["elapsed_min"] for j in v if j["elapsed_min"]]),
+                     wait_min=med([j["wait_min"] for j in v if j["wait_min"] is not None]), core_h=round(sum(j["core_h"] for j in v), 2),
+                     first=min((j["start"] for j in v if j["start"]), default=""), last=max((j["end"] for j in v if j["end"]), default=""), nodes=sorted({j["node"] for j in v if j["node"]}))
+                for k, v in sorted(out.items())]
+    return dict(jobs=jobs, tools=agg("tool"), analyses=agg("analysis"))
+
+def perf():
+    return dict(at=f"{datetime.datetime.now():%F %T}", cluster=cluster(), runs=job_perf())
+
 def params(): return read_yaml(PARAM_YAML)
 
 def path_info(p):
@@ -335,6 +413,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/status": self.send_json(200, status(self.query("analysis")))
         elif path == "/api/results": self.send_json(200, results(self.query("analysis")))
         elif path == "/api/params": self.send_json(200, params())
+        elif path == "/api/perf": self.send_json(200, perf())
         elif path == "/api/examples": self.send_json(200, dict(examples=examples()))
         elif path == "/api/path": self.send_json(200, path_info(self.query("p")))
         else: self.send_json(404, dict(error="not found"))
