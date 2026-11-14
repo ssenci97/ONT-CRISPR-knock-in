@@ -123,6 +123,14 @@ pre.cmd { background: var(--fill); border-radius: 8px; padding: 12px 14px; font-
 button.chip { border: 0; font: 14px var(--font); }
 button.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
 .member-head { font-size: 16px; font-weight: 600; margin: 16px 0 6px; }
+.agency { margin: 16px 0 12px; padding: 14px 0 14px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+.agency-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.agency-head .ctl-lab { padding-top: 0; font-size: 15px; }
+.agency-help { margin: 8px 2px 0; font-size: 15px; }
+.nodes-pick { display: grid; gap: 6px; margin-top: 8px; }
+.node-opt .node-tick { font-size: 18px; line-height: 1; }
+.node-opt .node-free { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.node-opt:disabled { opacity: .55; cursor: not-allowed; }
 
 .bar-wrap { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .bar { flex: 1; height: 10px; border-radius: 5px; background: var(--fill); overflow: hidden; display: flex; }

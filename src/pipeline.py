@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Plan, submit and track the KNOCKIN-VAL jobs of an analysis on SLURM: files on disk decide what runs, no workflow engine."""
-import argparse, csv, datetime, fcntl, getpass, glob, json, os, re, resource, subprocess, sys, time
+import argparse, collections, csv, datetime, fcntl, getpass, glob, json, os, re, resource, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import analysis
+import analysis, sample_meta
 
 ###################################### constants
 T0 = time.time()
@@ -20,6 +20,11 @@ PARTITION, BUDGET_CPUS, BUDGET_MEM_MB = "GENOA", 32, 64000
 MEM_MIN, MEM_MAX, TIME_MIN, TIME_MAX, SAFETY = 1000, 32000, 15, 2880, 1.5
 MAX_JOBS, MAX_USER_JOBS, STOP_WAIT, STOP_PAUSE = 100, 200, 120, 2
 REF_FILES = ("TRAC_WT.fa", "TRAC_KI.fa", "CAR_insert.fa", "alpine/ref.fa", "alpine/config.tsv", "design.json")
+PROFILES, NODE_FRACTION, NODE_RE = dict(savemem=1, processive=2, custom=4), 0.5, re.compile(r"^[A-Za-z0-9._-]+$")
+SKIP_PARTS, USABLE = re.compile(r"^(DGX|GPU|H100|UPDATE)", re.I), ("idle", "mix", "mixed")
+NODE_FMT = "NodeList:40,Partition:24,StateCompact:12,CPUsState:24,Memory:14,AllocMem:14"
+STEP_OF = dict(filter="01_fetch", alpine="03_alpine", lungo="04_lungo")
+ACCT = "JobID,State,TotalCPU,Elapsed,MaxRSS,AllocCPUS,ReqMem,Submit,Start"
 
 ###################################### helpers
 def log(m): print(f"[PYTHON-INFO] {m}", flush=True)
@@ -43,6 +48,7 @@ def load_params(path, root):
     return yaml.safe_load(open(path))
 
 def kind(key): return key if key in RES else key.split("_")[0]
+def meta_target(key): return (key.split("_", 1)[1], STEP_OF[kind(key)]) if kind(key) in STEP_OF and "_" in key else ("_analysis", key)
 
 def sh(cmd, timeout=30):
     try: return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.splitlines()
@@ -209,12 +215,78 @@ def size_job(j, obs):
     j.update(cpus=c, mem_mb=final, minutes=int(min(TIME_MAX, max(TIME_MIN, t))), in_bytes=inb,
              sized=f"{why} = {mem / 1024:.1f} GB" + (f" !! above our cap, capped at {MEM_MAX // 1000} GB" if mem > MEM_MAX else ""))
 
-def lanes(jobs):
-    w = max(j["cpus"] for j in jobs); n = max(1, min(BUDGET_CPUS // w, BUDGET_MEM_MB // max(j["mem_mb"] for j in jobs)))
-    load, tail, out = [0.0] * n, [""] * n, {}
+def width(jobs):
+    lv = {}
+    for j in jobs: lv[j["key"]] = 1 + max([lv[d] for d in j["deps"] if d in lv], default=-1)
+    return max(collections.Counter(lv.values()).values(), default=1)
+
+def lanes(jobs, nodes, want):
+    slots = [n for n in nodes for _ in range(n["lanes"])][:max(1, want)] or [dict(node="", part=PARTITION)]
+    load, tail, prev, where = [0.0] * len(slots), [""] * len(slots), {}, {}
     for j in jobs:
-        k = min(range(n), key=load.__getitem__); out[j["key"]] = tail[k]; tail[k] = j["key"]; load[k] += j["minutes"]
-    return n, w, out
+        k = min(range(len(slots)), key=load.__getitem__); prev[j["key"]] = tail[k]; tail[k] = j["key"]; load[k] += j["minutes"]; where[j["key"]] = slots[k]
+    return len(slots), prev, where
+
+def node_table():
+    out = {}
+    for l in sh(["sinfo", "-N", "-h", "-O", NODE_FMT]):
+        f = l.split()
+        if len(f) < 6 or f[3].count("/") != 3: continue
+        a, i, o, t = (int(x) if x.isdigit() else 0 for x in f[3].split("/"))
+        mem, al = int(float(f[4])) if f[4].replace(".", "").isdigit() else 0, int(float(f[5])) if f[5].replace(".", "").isdigit() else 0
+        n = out.setdefault(f[0], dict(node=f[0], partitions=[], state=f[2], cpus=t, idle=i, mem_mb=mem, free_mb=max(0, mem - al)))
+        if f[1].rstrip("*") not in n["partitions"]: n["partitions"].append(f[1].rstrip("*"))
+    for n in out.values():
+        n["parts"] = [p for p in n["partitions"] if not SKIP_PARTS.match(p)]
+        n["usable"] = bool(n["parts"]) and n["state"] in USABLE and not re.match(r"^(dgx|gpu)", n["node"], re.I)
+        n["half_cpus"], n["half_mb"] = int(n["cpus"] * NODE_FRACTION), int(n["mem_mb"] * NODE_FRACTION)
+        n["score"] = round((n["idle"] / n["cpus"] if n["cpus"] else 0) + (n["free_mb"] / n["mem_mb"] if n["mem_mb"] else 0), 3)
+    return sorted(out.values(), key=lambda n: (not n["usable"], -n["score"], n["node"]))
+
+def part_limits():
+    out = {}
+    for l in sh(["sinfo", "-h", "-o", "%P %l"]):
+        f = l.split()
+        if len(f) == 2: out[f[0].rstrip("*")] = 1e9 if f[1] in ("infinite", "UNLIMITED") else to_min(f[1])
+    return out
+
+def ceiling(node, part, t, cap=None):
+    c, m = (t["half_cpus"], t["half_mb"]) if t else (BUDGET_CPUS, BUDGET_MEM_MB)
+    if cap: c, m = min(c, cap[0]), min(m, cap[1])
+    return dict(node=node, part=part, cpus=c, mem=m)
+
+def choose_nodes(jobs, profile, picked, root):
+    """Nodes for this launch: the profile sets the most an analysis may get, the DAG width how much of it is used."""
+    w, m, want = max(j["cpus"] for j in jobs), max(j["mem_mb"] for j in jobs), width(jobs)
+    if profile == "custom":
+        table = {n["node"]: n for n in node_table()}
+        bad = [x for x in picked if x not in table or not table[x]["usable"]]
+        if not picked or len(picked) > PROFILES["custom"] or bad: raise ValueError(f"custom profile needs 1-{PROFILES['custom']} available nodes; not available now: {', '.join(bad) or '-'}")
+        lim, need = part_limits(), max(j["minutes"] for j in jobs)
+        nodes = [ceiling(x, next((p for p in table[x]["parts"] if lim.get(p, 1e9) >= need), table[x]["parts"][0]), table[x]) for x in picked]
+        why = f"custom nodes {', '.join(picked)}"
+    elif os.environ.get("NODE_PICK", "1") == "0": nodes, why = [ceiling("", PARTITION, None)], "node pick off"
+    else:
+        node, part, why = pick_node(jobs, max(1, min(BUDGET_CPUS // w, BUDGET_MEM_MB // m, want)), w, root)
+        table = {n["node"]: n for n in node_table()} if node else {}
+        nodes = [ceiling(node, part, table.get(node), (BUDGET_CPUS, BUDGET_MEM_MB) if profile == "savemem" else None)]
+        first = max(1, min(nodes[0]["cpus"] // w, nodes[0]["mem"] // m))
+        if profile == "processive" and node and first < want:
+            alt = [n for n in table.values() if n["usable"] and n["node"] != node and part in n["partitions"] and n["idle"] >= w and n["free_mb"] >= m]
+            if alt:
+                b = max(alt, key=lambda n: n["score"]); nodes.append(ceiling(b["node"], part, b))
+                why += f"; second node {b['node']} ({b['idle']} cpus {b['free_mb'] // 1000} GB free)"
+            else: why += f"; no second {part} node has {w} cpus {m // 1000} GB free, staying on one"
+    fit = [n for n in nodes if n["cpus"] >= w and n["mem"] >= m]
+    small = [n["node"] for n in nodes if n not in fit and n["node"]]
+    if small: why += f"; skipped {', '.join(small)}: half the node is below the widest job ({w} cpus {m // 1000} GB)"
+    if not fit and profile == "custom": raise ValueError(f"custom profile: none of the ticked nodes has half its size above the widest job ({w} cpus {m // 1000} GB)")
+    if not fit: fit, why = nodes[:1], why + " !! keeping the only node although the widest job is above its ceiling"
+    used, total = [], 0
+    for n in fit:
+        if used and total >= want: break
+        n["lanes"] = max(1, min(n["cpus"] // w, n["mem"] // m)); used.append(n); total += n["lanes"]
+    return used, want, why
 
 def pick_node(jobs, n, w, root):
     big = [max(j["cpus"] for j in jobs), max(j["mem_mb"] for j in jobs)]
@@ -239,12 +311,18 @@ def guard(n):
     if live + n > MAX_USER_JOBS: raise RuntimeError(f"you already have {live} jobs in the SLURM queue; {n} more would pass the limit of {MAX_USER_JOBS}: wait or stop some")
 
 ###################################### submit
-def sbatch_env(root, name, img, binds, outs):
+def sbatch_env(root, name, img, binds, outs, job=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("SLURM_", "SBATCH_"))}
     env.update(KV_ROOT=os.path.realpath(root), KV_ANALYSIS=name, KV_IMAGE=img, KV_BINDS=",".join(binds), KV_OUTPUTS=":".join(outs))
+    if job:
+        t, st = meta_target(job["key"])
+        env.update(KV_META_TARGET=t, KV_META_STEP=st, KV_IN_BYTES=str(int(job.get("in_bytes") or 0)),
+                   KV_ASK=json.dumps(dict(cpus=job["cpus"], mem_mb=job["mem_mb"], time_min=job["minutes"], why=job.get("sized", ""))))
     return env
 
-def submit(name, root=ROOT, dry_run=False):
+def submit(name, root=ROOT, dry_run=False, profile="savemem", picked=()):
+    if profile not in PROFILES: raise ValueError(f"unknown profile {profile!r}: use one of {', '.join(PROFILES)}")
+    if len(picked) > PROFILES[profile] or any(not NODE_RE.match(x) for x in picked): raise ValueError(f"{profile}: at most {PROFILES[profile]} valid node names")
     if dry_run:
         verify_inputs(name, root); jobs, run = todo(name, root); preflight(jobs, run)
         return [dict(j, state="would-run" if j["key"] in run else "done", jobid="") for j in jobs]
@@ -254,10 +332,10 @@ def submit(name, root=ROOT, dry_run=False):
     lock = open(f"{d}/.lock", "w")
     try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError: raise RuntimeError(f"another launch of {name} is in progress")
-    try: return launch(name, root)
+    try: return launch(name, root, profile, list(picked))
     finally: lock.close()
 
-def launch(name, root):
+def launch(name, root, profile="savemem", picked=()):
     _, _, errs = analysis.create(name, root)
     if errs: raise ValueError("; ".join(errs))
     verify_inputs(name, root)
@@ -269,9 +347,15 @@ def launch(name, root):
     if todo_jobs: guard(len(todo_jobs))
     hist = history(root) if todo_jobs else {}
     for j in todo_jobs: size_job(j, hist.get(kind(j["key"]), []))
-    n, w, prev = lanes(todo_jobs) if todo_jobs else (1, 1, {})
-    node, part, why = pick_node(todo_jobs, n, w, root) if todo_jobs and os.environ.get("NODE_PICK", "1") != "0" else ("", PARTITION, "node pick off")
-    plog = [f"[PYTHON-INFO] {datetime.datetime.now():%F %T} launch {name}: {len(todo_jobs)} job(s) in {n} lane(s) of {w} cpus (budget {BUDGET_CPUS} cpus {BUDGET_MEM_MB // 1000} GB), {why}"] + [f"[PYTHON-INFO]   {j['key']}: {j['cpus']} cpus {j['mem_mb']} MB {j['minutes']} min ({j['sized']})" for j in todo_jobs]
+    try: fill_perf(name, root)
+    except (OSError, ValueError) as e: log(f"!! performance metadata not refreshed: {e}")
+    nodes, want, why = choose_nodes(todo_jobs, profile, picked, root) if todo_jobs else ([], 1, "")
+    n, prev, where = lanes(todo_jobs, nodes, want) if todo_jobs else (1, {}, {})
+    w = max((j["cpus"] for j in todo_jobs), default=1)
+    plog = [f"[PYTHON-INFO] {datetime.datetime.now():%F %T} launch {name} [{profile}]: {len(todo_jobs)} job(s) in {n} lane(s) of {w} cpus (budget {sum(x['cpus'] for x in nodes)} cpus {sum(x['mem'] for x in nodes) // 1000} GB), {why}"]
+    plog += [f"[PYTHON-INFO]   parallel width {want} (most jobs that can run at once)"] if todo_jobs else []
+    plog += [f"[PYTHON-INFO]   node {x['node'] or '(no pin)'} {x['part']}: at most {x['cpus']} cpus {x['mem'] // 1000} GB -> {x['lanes']} lane(s)" for x in nodes]
+    plog += [f"[PYTHON-INFO]   {j['key']}: {j['cpus']} cpus {j['mem_mb']} MB {j['minutes']} min ({j['sized']})" for j in todo_jobs]
     os.makedirs(f"{d}/logs", exist_ok=True); open(f"{d}/logs/node_pick.log", "a").write("\n".join(plog) + "\n")
     for l in plog[:1]: log(l.split("] ", 1)[1])
     before = {r["key"]: r for r in read_jobs(name, root)}
@@ -284,9 +368,10 @@ def launch(name, root):
         dep, after = [ids[x] for x in j["deps"] if x in ids], ids.get(prev.get(j["key"], ""), "")
         when = ",".join(([f"afterok:{':'.join(dep)}"] if dep else []) + ([f"afterany:{after}"] if after and after not in dep else []))
         args = [a.format(cpus=j["cpus"], mem_mb=j["mem_mb"]) if a in ("{cpus}", "{mem_mb}") else a for a in j["args"]]
+        node, part = where[j["key"]]["node"], where[j["key"]]["part"]
         cmd = ["sbatch", "--parsable", "-J", f"kv_{name}_{j['key']}", "-p", part] + (["-w", node] if node else []) + ["-N", "1", "-c", str(j["cpus"]), f"--mem={j['mem_mb']}", "-t", str(j["minutes"]),
             "-o", j["log"], "--kill-on-invalid-dep=yes", "--comment", f"kv:{name}:{j['key']}"] + ([f"--dependency={when}"] if when else []) + [f"{root}/src/kv_job.sh", j["script"]] + args
-        r = subprocess.run(cmd, capture_output=True, text=True, env=sbatch_env(root, name, img, j["binds"], j["outputs"]))
+        r = subprocess.run(cmd, capture_output=True, text=True, env=sbatch_env(root, name, img, j["binds"], j["outputs"], j))
         jid = r.stdout.strip().split(";")[0] if r.returncode == 0 else ""
         if not jid:
             if ids: subprocess.run(["scancel"] + list(ids.values()), capture_output=True)
@@ -316,6 +401,33 @@ def slurm_states(jobids):
         i, _, s = l.partition("|"); st[i.strip()] = s.split()[0] if s.strip() else ""
     return st
 
+def fill_perf(name, root=ROOT):
+    """Add the sacct view (state, CPU and memory efficiency, queue wait) to each finished job's perf record in meta/*.json."""
+    rows, meta, need = [r for r in read_jobs(name, root) if r.get("jobid")], f"{root}/results/{name}/meta", []
+    for r in rows:
+        t, st = meta_target(r["key"]); p = f"{meta}/{t}.json"
+        cur = ((json.load(open(p)).get("steps") or {}).get(st) or {}).get("perf") or {} if os.path.exists(p) else {}
+        if not (cur.get("sacct") and str(cur.get("jobid")) == r["jobid"]): need.append((r, t, st, cur))
+    acct, ids = {}, [r["jobid"] for r, *_ in need]
+    for i in range(0, len(ids), 200):
+        for l in sh(["sacct", "-n", "-P", "-j", ",".join(ids[i:i + 200]), "-o", ACCT]):
+            f = l.split("|")
+            if len(f) < 9: continue
+            d = acct.setdefault(f[0].split(".")[0], dict(rss=0.0, cpu=0.0, el=0.0))
+            if "." not in f[0]: d.update(state=f[1].split()[0] if f[1].strip() else "", cpus=int(f[5]) if f[5].isdigit() else 0, req=mb(f[6]), submit=f[7], start=f[8])
+            d.update(rss=max(d["rss"], mb(f[4])), cpu=max(d["cpu"], to_min(f[2])), el=max(d["el"], to_min(f[3])))
+    when = lambda v: datetime.datetime.fromisoformat(v) if v and v[0].isdigit() else None
+    for r, t, st, cur in need:
+        a = acct.get(r["jobid"])
+        if not a or not a.get("state") or a["state"] in LIVE: continue
+        s0, s1, req = when(a.get("submit")), when(a.get("start")), float(r.get("mem_mb") or 0) or a.get("req") or 0
+        sa = dict(state=a["state"], total_cpu_s=round(a["cpu"] * 60), elapsed_s=round(a["el"] * 60), max_rss_gb=round(a["rss"] / 1024, 2),
+                  cpu_eff=round(100 * a["cpu"] / (a["el"] * a["cpus"]), 1) if a["el"] and a["cpus"] else None,
+                  mem_eff=round(100 * a["rss"] / req, 1) if req and a["rss"] else None, wait_min=round((s1 - s0).total_seconds() / 60, 1) if s0 and s1 else None)
+        patch = dict(jobid=r["jobid"], sacct=sa)
+        if str(cur.get("jobid")) != r["jobid"]: patch.update(node=r.get("node") or None, asked=dict(cpus=int(r["cpus"]) if r.get("cpus") else None, mem_mb=int(r["mem_mb"]) if r.get("mem_mb") else None, time_min=int(r["minutes"]) if r.get("minutes") else None))
+        sample_meta.update_perf(meta, t, st, patch, f"{root}/results/{name}")
+
 def stop(name, root=ROOT):
     d = analysis.analysis_dir(name, root)
     if not os.path.isdir(d): return dict(cancelled=[], remaining=[])
@@ -343,13 +455,14 @@ def stop(name, root=ROOT):
 ###################################### main
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("analysis_name"); ap.add_argument("--dry-run", action="store_true"); ap.add_argument("--stop", action="store_true"); ap.add_argument("--root", default=ROOT, help=argparse.SUPPRESS)
+    ap.add_argument("--profile", default="savemem", choices=list(PROFILES)); ap.add_argument("--nodes", default="", help="custom profile: comma-separated node names (1-4)")
     a = ap.parse_args()
     try:
         if a.stop:
             r = stop(a.analysis_name, a.root)
             log(f"cancelled {len(r['cancelled'])} job(s)" + (f"; !! still live after 3 scancel rounds: {' '.join(r['remaining'])}" if r["remaining"] else ""))
         else:
-            out = submit(a.analysis_name, a.root, a.dry_run)
+            out = submit(a.analysis_name, a.root, a.dry_run, a.profile, [x for x in a.nodes.split(",") if x])
             for j in out: log(f"{j['key']}: {'submitted ' + j['jobid'] if j['state'] == 'submitted' else j['state']}")
             n = lambda s: sum(j["state"] == s for j in out)
             log(f"{len(out)} jobs: {n('done')} done, {n('submitted')} submitted, {n('would-run')} would run")

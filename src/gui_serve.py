@@ -160,12 +160,12 @@ def preflight(need_sheet):
     if not rt["apptainer"]: return "singularity not on PATH (module load singularity before starting the console)"
     return None
 
-def launch(name, src=None, group=None):
+def launch(name, src=None, group=None, profile="savemem", nodes=()):
     rt = runtime()
     try: a_dir, new, errs = analysis.create(name, ROOT, src)
     except ValueError as e: return None, str(e)
     if errs: return None, errs
-    cmd = ["python3", PIPELINE, name, "--root", ROOT]
+    cmd = ["python3", PIPELINE, name, "--root", ROOT, "--profile", profile] + (["--nodes", ",".join(nodes)] if nodes else [])
     with open(run_log(name), "a") as fh:
         fh.write(f"\n===== {datetime.datetime.now():%F %T} {' '.join(cmd)} =====\n"); fh.flush()
         try: rc = subprocess.run(cmd, cwd=ROOT, env=dict(os.environ, KV_ROOT=ROOT), stdout=fh, stderr=subprocess.STDOUT, timeout=600).returncode
@@ -179,19 +179,29 @@ def launch(name, src=None, group=None):
               submitted=sum(bool(r["jobid"]) for r in pipeline.read_jobs(name, ROOT)), node=next((r.get("node") for r in pipeline.read_jobs(name, ROOT) if r.get("node")), ""))
     if src: st["source"] = os.path.relpath(src, ROOT)
     if group: st["group"] = group
+    st.update(profile=profile, nodes=sorted({r["node"] for r in pipeline.read_jobs(name, ROOT) if r.get("node")}))
     json.dump(st, open(run_state(name), "w"), indent=2)
     log(f"{'started' if new else 'resumed'} analysis {name}, {st['submitted']} job(s) submitted ({st['mode']})" + (f" from {st['source']}" if src else ""))
     return st, None
 
-def start_run(name, wanted=()):
+def check_profile(profile, nodes):
+    if profile not in pipeline.PROFILES: return f"unknown agency profile {profile!r}"
+    if any(not pipeline.NODE_RE.match(n) for n in nodes): return "invalid node name"
+    if profile == "custom" and not 1 <= len(nodes) <= pipeline.PROFILES["custom"]: return f"Custom: tick 1 to {pipeline.PROFILES['custom']} nodes"
+    if profile != "custom" and nodes: return f"{profile} picks its nodes itself; nodes are only for Custom"
+    return None
+
+def start_run(name, wanted=(), profile="savemem", nodes=()):
+    err = check_profile(profile, nodes)
+    if err: return None, err
     if not LAUNCH.acquire(blocking=False): return None, "a launch is already in progress: wait for it to finish"
-    try: return start_locked(name, wanted)
+    try: return start_locked(name, wanted, profile, list(nodes))
     finally: LAUNCH.release()
 
-def start_locked(name, wanted):
+def start_locked(name, wanted, profile="savemem", nodes=()):
     if not wanted:
         err = preflight(True)
-        return (None, err) if err else launch(name)
+        return (None, err) if err else launch(name, profile=profile, nodes=nodes)
     known = {e["name"]: e for e in examples()}
     bad = [w for w in wanted if w not in known]
     if bad: return None, [f"unknown example {w}" for w in bad]
@@ -201,7 +211,7 @@ def start_locked(name, wanted):
     started, errors = [], {}
     for w in wanted:
         n = f"{name}_{known[w]['short']}"
-        st, e = launch(n, f"{EXAMPLES}/{w}", name)
+        st, e = launch(n, f"{EXAMPLES}/{w}", name, profile, nodes)
         if st: started.append(st)
         else: errors[n] = e if isinstance(e, list) else [e]
     if not started: return None, [f"{n}: {m}" for n, ms in errors.items() for m in ms]
@@ -362,9 +372,17 @@ def job_perf():
     return dict(jobs=jobs, tools=agg("tool"), analyses=agg("analysis"))
 
 def perf():
+    for a in analyses():
+        try: pipeline.fill_perf(a["name"], ROOT)
+        except (OSError, ValueError) as e: log(f"!! perf metadata of {a['name']} not refreshed: {e}")
     return dict(at=f"{datetime.datetime.now():%F %T}", cluster=cluster(), runs=job_perf())
 
 def params(): return read_yaml(PARAM_YAML)
+
+def nodes():
+    keep = ("node", "partitions", "state", "cpus", "idle", "mem_mb", "free_mb", "half_cpus", "half_mb", "usable")
+    t = pipeline.node_table()
+    return dict(nodes=[{k: n[k] for k in keep} for n in t if n["usable"]], max=pipeline.PROFILES["custom"], fraction=pipeline.NODE_FRACTION, available=bool(t))
 
 def path_info(p):
     p = os.path.expanduser(p or "")
@@ -380,7 +398,7 @@ def path_info(p):
     return out
 
 def results(name):
-    out = dict(matrix=None, rows=[], classes=None, reads={}, meta={}, group=[])
+    out = dict(matrix=None, rows=[], classes=None, reads={}, meta={}, analysis_meta=None, group=[])
     if not name: return out
     out["group"] = [dict(name=a["name"], done=a["done"], group=a["group"]) for a in members(name)]
     a = f"{RESULTS}/{name}"
@@ -394,8 +412,10 @@ def results(name):
     if os.path.isdir(d):
         for f in sorted(os.listdir(d)):
             if f.endswith(".json"):
-                try: out["meta"][f[:-5]] = json.load(open(f"{d}/{f}"))
-                except ValueError: pass
+                try: j = json.load(open(f"{d}/{f}"))
+                except ValueError: continue
+                if f == "_analysis.json": out["analysis_meta"] = j
+                else: out["meta"][f[:-5]] = j
     for sid, j in out["meta"].items():
         f = (j.get("steps") or {}).get("01_fetch") or {}
         if "raw_reads" in f: out["reads"][sid] = dict(raw_reads=f.get("raw_reads"), len_pass=f.get("len_pass"))
@@ -425,6 +445,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/results": self.send_json(200, results(self.query("analysis")))
         elif path == "/api/params": self.send_json(200, params())
         elif path == "/api/perf": self.send_json(200, perf())
+        elif path == "/api/nodes": self.send_json(200, nodes())
         elif path == "/api/examples": self.send_json(200, dict(examples=examples()))
         elif path == "/api/path": self.send_json(200, path_info(self.query("p")))
         else: self.send_json(404, dict(error="not found"))
@@ -438,7 +459,7 @@ class Handler(BaseHTTPRequestHandler):
             out = save(body["samples"])
             return self.send_json(200, dict(out, params_yaml=apply_example(ex) if ex else None))
         if self.path == "/api/run":
-            st, err = start_run((body.get("analysis") or "").strip(), [str(x) for x in body.get("examples") or []])
+            st, err = start_run((body.get("analysis") or "").strip(), [str(x) for x in body.get("examples") or []], str(body.get("profile") or "savemem"), [str(x) for x in body.get("nodes") or []])
             if err: return self.send_json(400, dict(errors=err if isinstance(err, list) else [err]))
             return self.send_json(200, st)
         if self.path == "/api/stop": return self.send_json(200, stop_run((body.get("analysis") or "").strip()))

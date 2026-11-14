@@ -1,6 +1,6 @@
 digraph metadata {
   graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=24, labelloc=t, nodesep=0.35, ranksep=0.5,
-         label="Where sample metadata comes from\nand where the run records it\n "];
+         label="Where sample and performance metadata come from\nand where the run records them\n "];
   node [fontname="Helvetica", fontsize=19, shape=box, style="rounded,filled", color="#8e8e93", penwidth=1.4, fontcolor="#1d1d1f", margin="0.2,0.12"];
   edge [color="#48484a", arrowsize=1.0, penwidth=1.4, fontname="Helvetica", fontsize=16];
 
@@ -12,11 +12,15 @@ digraph metadata {
   frozen [label="results/<name>/inputs/\nsamples.tsv, samples/*.json, params.yaml", fillcolor="#f2f2f7"];
   steps  [label="pipeline rules\nkv_meta <sample_id> <step> k=v", fillcolor="#ece8f7"];
   writer [label="src/sample_meta.py\nsingle writer", fillcolor="#ece8f7"];
-  rjson  [label="results/<name>/meta/<sample_id>.json\nsubmitted fields + per-step params,\nread counts, job ids, commit", fillcolor="#1f5f4f", fontcolor="white", penwidth=0];
+  rjson  [label="results/<name>/meta/<sample_id>.json\nsubmitted fields + per-step params,\nread counts, job ids, commit,\nsteps.<step>.perf", fillcolor="#1f5f4f", fontcolor="white", penwidth=0];
+  ajson  [label="results/<name>/meta/_analysis.json\nperf of ENA, downloads, refs, summary", fillcolor="#1f5f4f", fontcolor="white", penwidth=0];
+  job    [label="src/kv_job.sh, when a job ends\nperf: asked, used, exit", fillcolor="#ece8f7"];
+  acct   [label="pipeline.py next launch, Performance page\nperf.sacct: state, efficiency, wait", fillcolor="#ece8f7"];
 
   schema -> form [label=" GET /api/schema"];
   form -> serve [label=" POST /api/samples"];
   serve -> sheet; serve -> sjson;
   sheet -> frozen [label=" Run freezes"]; sjson -> frozen;
   frozen -> steps -> writer -> rjson;
+  job -> writer; acct -> writer; writer -> ajson;
 }

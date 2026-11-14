@@ -19,7 +19,7 @@
 | cluster | `python3` (PyYAML optional), `sbatch`, `singularity` (`module load singularity`), `curl` |
 | workstation (build) | `docker` or `podman` |
 | disk | room for the downloaded reads, results and the image |
-| resources | CPUs per tool in `RES` (`src/pipeline.py`); memory/time learned from `sacct` of earlier runs; ≤ 32 cores / 64 GB per analysis (≤ 32 GB per job) on one node from `get_best_node`; ≤ 100 jobs per launch |
+| resources | CPUs per tool in `RES` (`src/pipeline.py`); memory/time learned from earlier runs (log footer + `sacct`); ≤ 32 GB per job; ≤ 100 jobs per launch; per-analysis ceiling set by the agency profile (§4) |
 
 ## 3. Layout
 
@@ -41,10 +41,11 @@
 | `data/` | filtered `<sample>.fastq.gz`, `stats/<sample>.tsv` |
 | `refs/` | `TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `design.json`, `alpine/` |
 | `ALPINE/<sample>/`, `CRISPRLungo/<sample>/` | tool outputs |
-| `meta/<sample_id>.json` | run provenance |
+| `meta/<sample_id>.json` | run provenance; `steps.<step>.perf` = the job's performance record (asked, used, `sacct`) |
+| `meta/_analysis.json` | `perf` records of jobs that belong to no sample (ENA, downloads, refs, summary), keyed by job name |
 | `logs/<step>/` | one log per job |
 | `summary.tsv`, `summary_matrix.tsv`, `summary_classes.tsv` | KI % results; `summary_classes.tsv` has read counts per tool class and outcome group (charted in the Results tab); `summary.tsv` also carries `partial_reads`/`partial_pct` (insert present but below `ki_min_insert_frac`) and the full per-class breakdown in `notes` |
-| `run.log`, `run_state.json` | console launch record |
+| `run.log`, `run_state.json` | console launch record; `run_state.json` also holds `profile`, the `nodes` used, and `group` for analyses launched together by **All examples** |
 
 ## 4. Conventions
 
@@ -52,6 +53,8 @@
 |---|---|
 | parameters | `configs/param_configs.yaml`, one section per step + `shared:`; frozen per analysis |
 | SLURM | one job per step per sample; no arrays; chained with `--dependency=afterok` |
+| agency profile | `--profile` / Run tab **Agency**: `savemem` (default; 1 node, ≤ half of it and ≤ 32 cores / 64 GB), `processive` (≤ 2 nodes of one partition, ≤ half of each), `custom` (`--nodes`, 1–4 ticked nodes, ≤ half of each). Ceilings, not targets: lanes = min(fit, parallel width); a further node only when the width does not fit |
+| performance metadata | JSON next to the sample metadata: `kv_job.sh` writes `perf` (`jobid node partition asked used started ended`) when a job ends; `pipeline.py` / the Performance page add `sacct` once SLURM has accounted it |
 | logs | start `[SLURM-INFO]`/`[PYTHON-INFO]`, end `date \| elapsed \| max RSS` (`kv_footer`) |
 | subsampling | none; `SEED=42` exported anyway |
 | control | `control_tier` in `samples.tsv`: first `mock`, else first `no_donor`; never row order |
@@ -133,6 +136,10 @@
 | job cannot see a file | add `--bind /path` to `apptainer-args` (symlink targets too) |
 | refused: live SLURM jobs / lock held | wait, or `python3 src/pipeline.py <name> --stop` |
 | refused: inputs changed | frozen inputs were edited → create a new analysis |
+| refused: `custom profile needs 1-4 available nodes` | a ticked node is drained, down or busy now → reopen **Custom** (the list is refreshed from `sinfo`) and tick others |
+| Processive used only one node | the parallel jobs fit on the first node, or no second node of that partition had room for the widest job; `logs/node_pick.log` says which |
+| **All examples** shows one report | fixed: the Results tab now shows one KI % table per analysis of the group; a missing table means that analysis' summary job has not finished (see its Run tab) |
+| `perf.used.max_rss_gb` is `null` | the job's cgroup peak is not readable on that node; `perf.sacct.max_rss_gb` fills it after accounting |
 | job failed or half-done | run `python3 src/pipeline.py <name>` again; done jobs are skipped |
 | ALPINE `--no-container` refused | `DockerRequirement`; stripped by `src/alpine.sh` |
 | ALPINE hangs at `count_read` | `plt.show()`; `MPLBACKEND=Agg` |

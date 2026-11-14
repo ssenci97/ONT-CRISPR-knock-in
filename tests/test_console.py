@@ -248,3 +248,27 @@ def test_perf_reports_nodes_and_job_efficiency_without_user_data(server):
     assert (j["cpu_eff"], j["mem_eff"], j["wait_min"], j["core_h"], j["node"]) == (50.0, 51.2, 30.0, 16.0, "genoa01")
     assert p["runs"]["tools"][0]["name"] == "alpine" and p["runs"]["analyses"][0]["core_h"] == 16.0
     assert "user" not in json.dumps(c).lower()
+
+def test_agency_profile_is_checked_and_recorded(server):
+    base, tmp = server
+    for profile, nodes, msg in (("turbo", [], "unknown agency profile"), ("custom", [], "tick 1 to 4"), ("custom", ["n1", "n2", "n3", "n4", "n5"], "tick 1 to 4"),
+                                ("custom", ["bad name"], "invalid node"), ("savemem", ["n1"], "only for Custom")):
+        body, code = post(f"{base}/api/run", analysis="run_one", profile=profile, nodes=nodes)
+        assert code == 400 and msg in body["errors"][0] and not (tmp / "results/run_one").exists()
+    st, code = post(f"{base}/api/run", analysis="run_one", profile="processive")
+    assert code == 200 and json.load(open(tmp / "results/run_one/run_state.json"))["profile"] == "processive"
+    assert "--profile processive" in (tmp / "results/run_one/run.log").read_text()
+
+def test_nodes_lists_only_usable_nodes_with_their_half(server):
+    base, tmp = server
+    (tmp / "bin/sinfo").write_text("#!/bin/sh\nprintf 'n1 GENOA idle 0/64/0/64 512000 0\\nn2 GENOA drain 0/64/0/64 512000 0\\ndgx1 DGX idle 0/64/0/64 512000 0\\n'\n"); (tmp / "bin/sinfo").chmod(0o755)
+    r = get(f"{base}/api/nodes")
+    assert r["max"] == 4 and r["available"] and [n["node"] for n in r["nodes"]] == ["n1"] and r["nodes"][0]["half_cpus"] == 32
+
+def test_analysis_level_metadata_is_not_a_sample(server):
+    base, tmp = server
+    post(f"{base}/api/run", analysis="run_one")
+    m = tmp / "results/run_one/meta"; os.makedirs(m)
+    json.dump({"sample_id": "A", "steps": {}}, open(m / "A.json", "w")); json.dump({"analysis": "run_one", "steps": {"refs": {"perf": {"jobid": "1"}}}}, open(m / "_analysis.json", "w"))
+    r = get(f"{base}/api/results?analysis=run_one")
+    assert list(r["meta"]) == ["A"] and r["analysis_meta"]["steps"]["refs"]["perf"]["jobid"] == "1"

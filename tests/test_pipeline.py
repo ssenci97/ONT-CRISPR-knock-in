@@ -362,3 +362,108 @@ def test_node_pick_finds_a_node_with_the_budget_free(tmp_path):
     r = run("32", "256000", "1440")
     assert r.stdout.split() == ["genoa02", "GENOA"] and "genoa02" in r.stderr
     assert run("64", "1000", "1440").stdout.strip() == ""
+
+###################################### agency profiles
+FAKE_SINFO_4 = '''#!/bin/bash
+case "$*" in
+  *"%P %l"*) printf 'GENOA* 2-00:00:00\\nTHIN 12:00:00\\n';;
+  *) printf 'genoa01 GENOA mix 56/8/0/64 512000 100000\\ngenoa02 GENOA mix 16/48/0/64 512000 200000\\ngenoa03 GENOA drain 0/64/0/64 512000 0\\ngenoa04 GENOA idle 0/64/0/64 512000 0\\nthin01 THIN idle 0/24/0/24 96000 0\\n';;
+esac
+'''
+
+def nodes_env(e, monkeypatch):
+    (e.fake / "bin" / "sinfo").write_text(FAKE_SINFO_4); (e.fake / "bin" / "sinfo").chmod(0o755)
+    (e.root / "src").mkdir(exist_ok=True)
+    for f in ("node_pick.sh", "best_node.sh"): shutil.copy(f"{ROOT}/src/{f}", e.root / "src" / f)
+    monkeypatch.setenv("NODE_PICK", "1")
+
+def pins(e): return {c["key"]: c["argv"][c["argv"].index("-w") + 1] if "-w" in c["argv"] else "" for c in e.calls()}
+
+def test_width_is_the_widest_level_of_the_dag(e):
+    assert pl.width(pl.plan(N, e.r)) == 5
+
+def test_savemem_stays_on_one_node_within_the_project_budget(e, monkeypatch):
+    nodes_env(e, monkeypatch)
+    pl.submit(N, e.r)
+    assert set(pins(e).values()) == {"genoa04"}
+    log = (e.root / "results" / N / "logs/node_pick.log").read_text()
+    assert "[savemem]" in log and "at most 32 cpus 64 GB -> 2 lane(s)" in log
+
+def test_processive_adds_a_second_node_of_the_same_partition_only_when_useful(e, monkeypatch):
+    nodes_env(e, monkeypatch)
+    pl.submit(N, e.r, profile="processive")
+    assert set(pins(e).values()) == {"genoa04", "genoa02"}
+    log = (e.root / "results" / N / "logs/node_pick.log").read_text()
+    assert "second node genoa02" in log and "parallel width 5" in log and "thin01" not in log
+
+def test_processive_with_one_wide_enough_node_uses_one(e, monkeypatch):
+    nodes_env(e, monkeypatch)
+    monkeypatch.setattr(pl, "RES", {k: (1, 1000, 15) for k in pl.RES})
+    pl.submit(N, e.r, profile="processive")
+    assert len(set(pins(e).values())) == 1
+
+def test_custom_uses_only_the_ticked_nodes_and_only_as_many_as_needed(e, monkeypatch):
+    nodes_env(e, monkeypatch)
+    pl.submit(N, e.r, profile="custom", picked=["genoa04", "genoa02", "genoa01", "thin01"])
+    used = set(pins(e).values())
+    assert used <= {"genoa04", "genoa02", "genoa01"} and "thin01" not in used and len(used) == 3
+    a = next(c["argv"] for c in e.calls() if pins(e)[c["key"]] == "genoa04")
+    assert a[a.index("-p") + 1] == "GENOA"
+
+@pytest.mark.parametrize("picked", [[], ["genoa03"], ["nope"], ["genoa01", "genoa02", "genoa04", "thin01", "genoa01"]])
+def test_custom_refuses_bad_node_lists(e, monkeypatch, picked):
+    nodes_env(e, monkeypatch)
+    with pytest.raises(ValueError): pl.submit(N, e.r, profile="custom", picked=picked)
+    assert not e.calls()
+
+def test_unknown_profile_refused(e):
+    with pytest.raises(ValueError): pl.submit(N, e.r, profile="turbo")
+
+###################################### performance metadata
+def test_jobs_carry_their_metadata_target_and_ask(e):
+    pl.submit(N, e.r)
+    ids = {c["key"]: c["id"] for c in e.calls()}
+    env = dict(l.split("=", 1) for l in (e.fake / f"env_{ids['alpine_A']}.txt").read_text().splitlines() if "=" in l)
+    assert env["KV_META_TARGET"] == "A" and env["KV_META_STEP"] == "03_alpine"
+    ask = __import__("json").loads(env["KV_ASK"])
+    assert ask["cpus"] == 16 and ask["mem_mb"] == 32000 and "default" in ask["why"]
+    env = dict(l.split("=", 1) for l in (e.fake / f"env_{ids['refs']}.txt").read_text().splitlines() if "=" in l)
+    assert env["KV_META_TARGET"] == "_analysis" and env["KV_META_STEP"] == "refs"
+
+@pytest.mark.parametrize("mode,rc", [("good", 0), ("fail", 7)])
+def test_kv_job_writes_a_perf_record_next_to_the_sample_metadata(e, monkeypatch, mode, rc):
+    import json
+    for k, v in dict(KV_META_TARGET="A", KV_META_STEP="03_alpine", KV_IN_BYTES="412", SLURM_JOB_ID="4711", KV_ASK=json.dumps(dict(cpus=1, mem_mb=1000, time_min=60, why="default 1/1"))).items(): monkeypatch.setenv(k, v)
+    (e.root / "src").mkdir(exist_ok=True); shutil.copy(f"{ROOT}/src/sample_meta.py", e.root / "src")
+    r, o, out = kv(e, mode)
+    assert r.returncode == rc and "perf metadata: meta/A.json" in o
+    perf = json.load(open(out / "meta/A.json"))["steps"]["03_alpine"]["perf"]
+    assert perf["jobid"] == "4711" and perf["asked"]["cpus"] == 1 and perf["used"]["exit"] == rc and perf["used"]["in_bytes"] == 412
+    assert isinstance(perf["used"]["elapsed_s"], int) and perf["started"] and perf["ended"] and perf["sacct"] is None
+
+def test_fill_perf_adds_sacct_view_and_covers_jobs_that_died_before_writing(e):
+    import json
+    pl.submit(N, e.r)
+    ids = {c["key"]: c["id"] for c in e.calls()}
+    meta = e.root / "results" / N / "meta"
+    pl.sample_meta.update_perf(str(meta), "A", "03_alpine", dict(jobid=ids["alpine_A"], used=dict(exit=0)), str(e.root / "results" / N))
+    e.put("sacct.txt", f"{ids['alpine_A']}|COMPLETED|00:50:00|00:30:00|0|16|32000M|2026-11-14T09:00:00|2026-11-14T09:00:30\n{ids['alpine_A']}.batch|COMPLETED|00:50:00|00:30:00|8192M|16||||\n"
+                       f"{ids['lungo_B']}|OUT_OF_MEMORY|00:10:00|00:05:00|0|16|32000M|2026-11-14T09:00:00|2026-11-14T09:01:00\n{ids['refs']}|RUNNING|00:00:01|00:00:01|0|1|4000M|2026-11-14T09:00:00|2026-11-14T09:00:01\n")
+    pl.fill_perf(N, e.r)
+    a = json.load(open(meta / "A.json"))["steps"]["03_alpine"]["perf"]
+    assert a["used"] == dict(exit=0) and a["sacct"]["state"] == "COMPLETED" and a["sacct"]["max_rss_gb"] == 8.0
+    assert a["sacct"]["cpu_eff"] == round(100 * 50 / (30 * 16), 1) and a["sacct"]["mem_eff"] == 25.6 and a["sacct"]["wait_min"] == 0.5
+    b = json.load(open(meta / "B.json"))["steps"]["04_lungo"]["perf"]
+    assert b["sacct"]["state"] == "OUT_OF_MEMORY" and b["asked"]["mem_mb"] == 32000 and b["used"] is None
+    assert not (meta / "_analysis.json").exists() or "refs" not in json.load(open(meta / "_analysis.json"))["steps"]
+
+def test_custom_skips_nodes_whose_half_is_below_the_widest_job(e, monkeypatch):
+    nodes_env(e, monkeypatch)
+    pl.submit(N, e.r, profile="custom", picked=["thin01", "genoa04"])
+    assert set(pins(e).values()) == {"genoa04"}
+    assert "skipped thin01" in (e.root / "results" / N / "logs/node_pick.log").read_text()
+
+def test_custom_with_only_too_small_nodes_is_refused(e, monkeypatch):
+    nodes_env(e, monkeypatch)
+    with pytest.raises(ValueError, match="widest job"): pl.submit(N, e.r, profile="custom", picked=["thin01"])
+    assert not e.calls()

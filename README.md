@@ -93,7 +93,7 @@ Each variable is listed with what it controls, the step that reads it, and the o
 - `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise. **Do not lower this below 21 for the example design:** the donor's PAM-blocking mutations sit at cut −3..0 and at **+20 bp**, so 25 clears the furthest one by only 4 bp. At the upstream default of 5 that mutation falls outside the window and CRISPRLungo warns.
   - step: `04_lungo`
   - original argument: CRISPRlungo `--window`
-- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job. CPUs are fixed per tool (`RES` in `src/pipeline.py`); memory and time are learned from earlier runs (see [SLURM use](#slurm-use-one-node-a-core-budget-learned-memory)).
+- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job. CPUs are fixed per tool (`RES` in `src/pipeline.py`); memory and time are learned from earlier runs (see [SLURM use](#slurm-use-agency-profiles-a-ceiling-learned-memory)).
   - step: `every step`
   - original argument: `sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin
 
@@ -121,7 +121,7 @@ Each analysis freezes its own copy of these values in `results/<analysis>/inputs
 | Automatic | Done by |
 |---|---|
 | `module load singularity` | `build.sh` (line 4) and `gui_serve.py` |
-| node choice | `pipeline.py` asks `get_best_node` once per launch and pins every job to that node |
+| node choice | per launch, by the **Agency** profile (default SaveMem: `get_best_node` picks one node and every job is pinned to it); see [SLURM use](#slurm-use-agency-profiles-a-ceiling-learned-memory) |
 
 ## Console
 
@@ -150,11 +150,13 @@ The screenshot below is a finished run of the example data.
 
 | Term | Definition |
 |---|---|
-| **Run on SLURM** | runs `src/pipeline.py <name>` on the login node: freezes inputs into `results/<name>/inputs/`, submits the jobs with `sbatch --dependency` and exits; jobs run unattended, there is no local mode |
+| **Run on SLURM** | runs `src/pipeline.py <name> --profile <p>` on the login node: freezes inputs into `results/<name>/inputs/`, submits the jobs with `sbatch --dependency` and exits; jobs run unattended, there is no local mode |
+| **Agency** | how much of the cluster an analysis may take, chosen before **Run on SLURM** and remembered in the browser: **SaveMem** (default, 1 node), **Processive** (up to 2 nodes of one partition) or **Custom** (tick 1–4 of the nodes free now, listed most available first with their free cores and memory). Every profile is a ceiling, at most half of each node; see [SLURM use](#slurm-use-agency-profiles-a-ceiling-learned-memory) |
+| group strip | after **All examples**, one row per launched analysis (status, progress, jobs done); click a row to follow it. Launch errors stay listed here |
 | overall bar | finished jobs out of planned jobs |
 | step rows | waiting / running / done / failed / cancelled / stopped per step, from files on disk plus `squeue`/`sacct`, each labelled in words and marked ✓ ✕ ▶ rather than by colour alone. A job counts as done once its output exists and its log ends with the footer. Failed jobs open with their log tail. |
 | SLURM queue | only this run's jobs, with partition and node |
-| node choice | `results/<name>/logs/node_pick.log`: per launch, the lanes, the chosen node and each job's CPUs / memory / time with where they came from |
+| node choice | `results/<name>/logs/node_pick.log`: per launch, the profile, the parallel width, each node with its ceiling and lanes, and each job's CPUs / memory / time with where they came from |
 | header line | `image · singularity · sbatch · get_best_node`; a run is refused if `sbatch` or singularity is missing |
 | resume | the same name again: done jobs are kept, the rest (and everything downstream) is resubmitted |
 | stop | `pipeline.py <name> --stop`: cancels this run's jobs (from `jobs.tsv` and any queued job tagged `kv:<name>:`), also while a launch is still submitting; re-checks up to 3 times and lists any job that survived |
@@ -172,7 +174,8 @@ The Results tab on the example data, in the **one plot per sample** layout.
 |---|---|
 | KI % | `results/<name>/summary_matrix.tsv`: tool × sample |
 | Read outcomes | chart builder on `results/<name>/summary_classes.tsv`. You choose the **samples**, **tools** and **outcomes** (the 6 groups below, or each tool's own classes), the **values** (reads, or % of classified, length-passing or raw reads), the **layout** (what goes in separate panels, rows and colours: e.g. all samples in one plot, one plot per sample, one per outcome), **stacked or side by side** bars, labels (value, count + %, none), sort order and shared or per-panel scale. **Read filtering panel** adds raw → length-passing → classified reads per sample. **Quick layouts** set common combinations in one click; choices are remembered in the browser. **Download SVG / PNG / TSV** saves exactly what is shown. Colours are checked for colour-blind readers, keep the same colour per sample/tool/outcome whatever is selected, and every bar has a legend entry and a hover label. |
-| per sample | `results/<name>/meta/<sample_id>.json`: submitted fields plus one record per step |
+| analyses run together | after **All examples**, one KI % table per analysis of the group, each under its name ("No report yet" until its summary exists); buttons above choose which analysis the charts and samples below follow |
+| per sample | `results/<name>/meta/<sample_id>.json`: submitted fields plus one record per step, each with its `perf` record (see [Performance metadata](#performance-metadata)); analysis-level jobs are in `meta/_analysis.json`, shown first |
 
 ![metadata](docs/img/04_metadata.svg)
 
@@ -189,19 +192,42 @@ The Results tab on the example data, in the **one plot per sample** layout.
 | `-L 8000:<node>:8000 <user>@<login-host>` refused | console binds loopback; use `-J` |
 | ssh to node refused | no job of yours on that node |
 
-## SLURM use: one node, a core budget, learned memory
+## SLURM use: agency profiles, a ceiling, learned memory
 
-Each **Run on SLURM** (or `pipeline.py <name>`):
+The cluster is shared and not ours, so every limit below is the **most** an analysis may ever take, not a target. Within it, an analysis uses only as much as its jobs can use at once.
+
+Each **Run on SLURM** (or `pipeline.py <name> [--profile savemem|processive|custom] [--nodes a,b]`):
 
 1. **Guards.** It refuses to submit more than 100 jobs in one launch (split the samples), or to push your own queue past 200 jobs.
-2. **Budget.** An analysis never holds more than **32 cores and 64 GB** at once (2 lanes × at most 32 GB per job; one lane = 32 GB). Jobs are put in lanes of the widest job (16 cores for ALPINE and CRISPRLungo, so 2 lanes). Each job also waits for the previous job in its lane (`--dependency=afterok:<real deps>,afterany:<lane predecessor>`).
-3. **One node.** `get_best_node` (`src/best_node.sh`, through `src/node_pick.sh`) is asked once for an idle or mixed CPU node with that budget free. It falls back to the biggest single job, and every job is submitted with `-p <partition> -w <node> -N 1`. Partitions without enough walltime, and DGX, GPU, H100 and UPDATE, are skipped. If no node fits, the jobs queue on GENOA without a pin. `NODE_PICK=0` turns the pick off.
+2. **Agency profile.** It sets the ceiling:
+
+   | Profile | Nodes | Most an analysis can take |
+   |---|---|---|
+   | **SaveMem** (default) | 1, chosen by `get_best_node` | half the node, and never more than 32 cores / 64 GB |
+   | **Processive** | up to 2 of the same partition: the first from `get_best_node`, the second the most available node of that partition with room for the widest job | half of each node |
+   | **Custom** | the 1–4 nodes you ticked; each job goes to a partition of its node with enough walltime | half of each node |
+
+   Node sizes and free resources come from `sinfo` at launch. Down, drained, GPU, DGX, H100 and UPDATE nodes are never used. If `get_best_node` finds nothing, jobs queue on GENOA without a pin. `NODE_PICK=0` turns the pick off for SaveMem and Processive.
+3. **Lanes.** Jobs run in lanes as wide as the widest job (16 cores for ALPINE and CRISPRLungo). The number of lanes is the smaller of what fits under the ceiling and the **parallel width**: the most jobs that can run at the same time in this launch. A second or later node is used only when that width does not fit on the nodes already chosen. Each job also waits for the previous job in its lane (`--dependency=afterok:<real deps>,afterany:<lane predecessor>`) and is submitted with `-p <partition> -w <node> -N 1`.
 4. **Memory and time.** Three things are combined for each job:
    - the **sample's input size**, recorded in `jobs.tsv` with every job;
    - the **real peak memory** of earlier jobs of the same tool in any analysis, taken as the larger of the `max RSS` printed in the job log footer and `sacct` MaxRSS;
    - **our cap** of 32 GB per job.
 
    Memory = 1.5 × the peak, scaled up by this input ÷ that input (never down), + 0.5 GB, taking the run that gives the highest value. A job that ran out of memory doubles its last request. The result is clamped to 1–32 GB, and the log says so when the cap cuts it. Time = 2 × the longest run (scaled the same way) + 10 min, kept within 15 min–48 h. With no history yet, the defaults in `RES` are used. Every choice and its reasoning is written to `logs/node_pick.log`. Jobs skipped as done keep their `jobs.tsv` row, so their history is not lost.
+
+### Performance metadata
+
+Performance is recorded next to the sample, file and configuration metadata, as JSON, in the same files: `steps.<step>.perf` in `meta/<sample_id>.json`. Jobs that belong to no sample (ENA, downloads, references, summary) write to `meta/_analysis.json` under their job name.
+
+| Field | Written by | Content |
+|---|---|---|
+| `jobid`, `node`, `partition`, `started`, `ended` | `src/kv_job.sh` when the job ends, failed jobs included | where and when it ran |
+| `asked` | the same | `cpus`, `mem_mb`, `time_min` and `why` (the sizing reason from `node_pick.log`) |
+| `used` | the same | `in_bytes`, `elapsed_s`, `max_rss_gb` (cgroup peak; `null` where unreadable), `exit` |
+| `sacct` | `pipeline.py` at the next launch, and the Performance page | `state`, `total_cpu_s`, `elapsed_s`, `max_rss_gb`, `cpu_eff`, `mem_eff`, `wait_min`; `null` until SLURM has accounted the job. A job killed before it could write its record (e.g. out of memory) gets `asked` from `jobs.tsv` and this block |
+
+`src/sample_meta.py` is the only writer of these files (file lock and atomic replace). A rerun of a step replaces its `perf` record.
 
 ## Pipeline
 
@@ -214,7 +240,7 @@ Each **Run on SLURM** (or `pipeline.py <name>`):
 | `03_alpine` | `alpine` | ALPINE, all reads, one job per sample | `ALPINE/<sample>/` |
 | `04_lungo` | `lungo` | CRISPRLungo, all reads, one job per sample | `CRISPRLungo/<sample>/` |
 | `05_summary` | `summary` | KI % per tool × sample | `summary.tsv`, `summary_matrix.tsv`, `summary_classes.tsv` |
-| every job | — | log, provenance via `src/sample_meta.py` | `logs/<step>/`, `meta/<sample_id>.json` |
+| every job | — | log, provenance and `perf` record via `src/sample_meta.py` | `logs/<step>/`, `meta/<sample_id>.json`, `meta/_analysis.json` |
 
 ![single tool](docs/img/02_single_tool.svg)
 
@@ -224,6 +250,8 @@ Command-line equivalent of the console:
 python3 src/analysis.py <name>                  # freeze inputs
 python3 src/pipeline.py <name> --dry-run        # show what would be submitted
 python3 src/pipeline.py <name>                  # submit; run again to resume
+python3 src/pipeline.py <name> --profile processive              # up to 2 nodes, half of each
+python3 src/pipeline.py <name> --profile custom --nodes n1,n2     # your nodes (1-4), half of each
 python3 src/pipeline.py <name> --stop           # scancel this analysis' jobs
 cat results/<name>/summary_matrix.tsv           # KI % per tool x sample
 ```

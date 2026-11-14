@@ -1,5 +1,5 @@
 const $ = (s, r = document) => r.querySelector(s);
-const state = { schema: null, params: {}, rows: [], examples: [], example: "", launched: null };
+const state = { schema: null, params: {}, rows: [], examples: [], example: "", launched: null, profile: "savemem", nodes: [] };
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -382,7 +382,8 @@ async function refreshStatus() {
   const st = s.state || {}, rs = $("#run-state");
   rs.textContent = "";
   rs.append(badge(s.outcome));
-  if (st.started_at) rs.append(el("strong", null, st.analysis), el("span", "muted", `started ${st.started_at} · ${(st.samples || []).length} samples${st.node ? ` · node ${st.node}` : ""} · results/${st.analysis}/`));
+  const where = (st.nodes || []).length ? ` · ${st.nodes.length > 1 ? "nodes" : "node"} ${st.nodes.join(", ")}` : st.node ? ` · node ${st.node}` : "";
+  if (st.started_at) rs.append(el("strong", null, st.analysis), el("span", "muted", `started ${st.started_at} · ${(st.samples || []).length} samples · ${{ savemem: "SaveMem", processive: "Processive", custom: "Custom" }[st.profile] || "SaveMem"}${where} · results/${st.analysis}/`));
   else if (name) rs.append(el("strong", null, name));
   renderGroup(s.group || [], name);
   const ov = $("#overall");
@@ -419,14 +420,49 @@ function renderGroup(members, current) {
   for (const [n, e] of errs) { const r = el("div", "member"); r.append(badge("failed", "not started"), el("span", "member-name", n), el("span", null, e.join("; "))); box.append(r); }
 }
 
+const PROFILES = {
+  savemem: "One node, never more than half of it and at most 32 cores / 64 GB. The gentlest choice for the shared cluster.",
+  processive: "Up to 2 nodes of the same partition, at most half of each. The second node is added only when more jobs could run in parallel than fit on the first.",
+  custom: "Tick 1 to 4 of the nodes that are free now (most available first). At most half of each is used, and only as many nodes as the parallel jobs need.",
+};
+
+function setProfile(p) {
+  state.profile = PROFILES[p] ? p : "savemem";
+  store.set("kv_profile", state.profile);
+  for (const b of document.querySelectorAll("#profile button")) { const on = b.dataset.p === state.profile; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); }
+  $("#profile-help").textContent = PROFILES[state.profile];
+  $("#nodes").hidden = state.profile !== "custom";
+  if (state.profile === "custom") loadNodes();
+}
+
+async function loadNodes() {
+  const box = $("#nodes"), r = await (await fetch("/api/nodes")).json();
+  box.textContent = "";
+  if (!r.available) { box.append(el("p", "muted", "sinfo shows no nodes here: start the console on the cluster login node.")); return; }
+  const free = new Set(r.nodes.map((n) => n.node));
+  state.nodes = state.nodes.filter((n) => free.has(n));
+  const full = state.nodes.length >= r.max;
+  box.append(el("p", "muted agency-help", `${state.nodes.length} of at most ${r.max} nodes ticked. Each node gives at most ${Math.round(r.fraction * 100)}% of its cores and memory.`));
+  if (!r.nodes.length) box.append(el("p", "muted", "No node is idle or mixed right now."));
+  for (const n of r.nodes) {
+    const on = state.nodes.includes(n.node), b = el("button", "member node-opt");
+    b.type = "button"; b.setAttribute("aria-pressed", String(on)); b.disabled = full && !on;
+    b.append(el("span", "node-tick", on ? "☑" : "☐"), badge(n.state === "idle" ? "done" : "running", n.state === "idle" ? "idle" : "mixed"), el("span", "member-name", `${n.node} · ${n.partitions.join(", ")}`),
+      el("span", "node-free", `${n.idle} of ${n.cpus} cores free · ${gb(n.free_mb)} of ${gb(n.mem_mb)} free · at most ${n.half_cpus} cores / ${gb(n.half_mb)}`));
+    b.addEventListener("click", () => { state.nodes = on ? state.nodes.filter((x) => x !== n.node) : [...state.nodes, n.node]; store.set("kv_nodes", JSON.stringify(state.nodes)); loadNodes(); });
+    box.append(b);
+  }
+}
+
 async function launch() {
   const analysis = currentAnalysis(), rs = $("#run-state");
   if (!analysis) { rs.textContent = ""; rs.append(badge("failed", "name required")); return; }
+  if (state.profile === "custom" && !state.nodes.length) { rs.textContent = ""; rs.append(badge("failed", "tick at least one node")); return; }
   const examples = state.example === "all" ? state.examples.map((e) => e.name) : [];
   const btn = $("#run-sbatch"); btn.disabled = true;
   rs.textContent = ""; rs.append(badge("waiting", "submitting…"));
   let res, body;
-  try { res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis, examples }) }); body = await res.json(); }
+  try { res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis, examples, profile: state.profile, nodes: state.profile === "custom" ? state.nodes : [] }) }); body = await res.json(); }
   finally { btn.disabled = false; }
   if (!res.ok) { rs.textContent = ""; rs.append(badge("failed", "not started"), el("span", null, (body.errors || ["failed"]).join("; "))); return; }
   state.launched = body.started ? { group: body.group, errors: body.errors || {} } : null;
@@ -866,7 +902,8 @@ async function refreshResults() {
   const box = $("#meta");
   box.textContent = "";
   const ids = Object.keys(r.meta);
-  if (!ids.length) { box.append(el("p", "muted", "—")); return; }
+  if (r.analysis_meta) { const d = el("details"); d.append(el("summary", null, "Analysis-level jobs (downloads, references, summary): performance"), el("pre", null, JSON.stringify(r.analysis_meta, null, 2))); box.append(d); }
+  if (!ids.length) { if (!r.analysis_meta) box.append(el("p", "muted", "—")); return; }
   for (const id of ids) {
     const d = el("details"), su = el("summary", null, id);
     const rows = r.rows.filter((x) => x.sample_id === id).map((x) => `${x.tool}: ${x.ki_pct}% (${x.ki_reads}/${x.reads_used})`).join("  ·  ");
@@ -887,6 +924,9 @@ $("#add").addEventListener("click", () => add());
 $("#reload").addEventListener("click", loadSaved);
 $("#submit").addEventListener("click", submit);
 $("#run-sbatch").addEventListener("click", launch);
+for (const b of document.querySelectorAll("#profile button")) b.addEventListener("click", () => setProfile(b.dataset.p));
+try { state.nodes = JSON.parse(store.get("kv_nodes") || "[]"); } catch { state.nodes = []; }
+setProfile(store.get("kv_profile") || "savemem");
 $("#analysis").addEventListener("input", renderRunNote);
 function stopReport(rs, results) {
   for (const [n, r] of Object.entries(results)) {
