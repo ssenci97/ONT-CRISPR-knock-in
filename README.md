@@ -69,6 +69,9 @@ Each variable is listed with what it controls, the step that reads it, and the o
 - `build_refs.template_title`: Exact title of the row in the supplementary table to use as donor; selects the knock-in construct.
   - step: `02_refs`
   - original argument: `build_refs.py --yaml-in`
+- `build_refs.nuclease`: Nuclease used, chosen in the console's design panel. It fills `cut_offset_from_guide_5p` and `lungo.cleavage_pos` with the pair that matches it (AsCas12a 18/17, SpCas9 17/16, ARCUS 11/10) and is stored so the choice survives a reload. No tool reads it.
+  - step: `console only`
+  - original argument: none
 - `build_refs.guide`: crRNA spacer sequence (5'->3'). Locates the cut site in the wild-type amplicon and is passed to CRISPRLungo.
   - step: `02_refs`, `04_lungo`
   - original argument: CRISPRlungo positional `<guide>`
@@ -137,8 +140,13 @@ Each sample card has a **Local file | SRA** switch, with Local file as the defau
 
 ![samples: cards](docs/img/gui_samples_example.png)
 
+Above the cards sits **Experiment design**: the parameters `02_refs` builds the references from, which used to be hand-edited in `configs/param_configs.yaml`. As you type, the console locates each primer and the guide in the reference window and reports the position, the strand and any mismatch; it derives the homology arms, the insert and the knock-in length from the donor and suggests the read-length filters from them. The **Nuclease** selector fills the two cut positions (`cut_offset_from_guide_5p` and CRISPRLungo's `cleavage_pos`), which must always differ by one. The **Donor FASTA | Supplementary table** switch picks which of the two donor sources is used, so an ambiguous configuration cannot be expressed. Tool internals sit under **Advanced**. While an example is selected the panel is read-only and shows that example's parameters, because **Save samples** applies them to `configs/param_configs.yaml`.
+
 | Term | Definition |
 |---|---|
+| **Save design** | validates, then merges the fields into `configs/param_configs.yaml` (previous one kept as `.bak`); `genomic_fasta` and `genomic_start_1based` are derived from the window, so they can never drift from it |
+| **Re-check** | runs the checks again without saving |
+| **Fetch reference window** | appears when the window is not cached; downloads it from Ensembl into `data/raw_refs/`, the same cache `02_refs` uses, and refuses a download that contradicts `configs/refs.sha256` |
 | **Save samples** | validates, then writes `configs/samples.tsv` (`sample_id, fastq_path, srr, condition, control_tier`) and `configs/samples/<sample_id>.json` |
 | **Load saved** | reopens the saved sheet |
 

@@ -88,6 +88,230 @@ function toggleInfo(show) {
   store.set("kv_info", show ? "1" : "0");
 }
 
+const DH = {};
+let AC = null;
+
+function pillBtn(label, cls, ic, fn) {
+  const b = el("button", `pill ${cls}`);
+  b.type = "button";
+  b.append(icon(ic), document.createTextNode(label));
+  b.addEventListener("click", fn);
+  return b;
+}
+
+function designValue(params, key) {
+  const [sec, k] = key.split(".");
+  const v = ((params || {})[sec] || {})[k];
+  return v === undefined || v === null ? "" : String(v);
+}
+
+function readDesign() {
+  const out = {};
+  for (const [k, h] of Object.entries(DH)) {
+    const v = h.input.value.trim();
+    if (h.f.type === "number" && v === "") continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+function pathList(input, kind) {
+  const dl = el("datalist");
+  dl.id = `${input.id}_dl`;
+  input.setAttribute("list", dl.id);
+  input.autocomplete = "off";
+  const fill = debounce(async () => {
+    const r = await (await fetch(`/api/path?kind=${kind}&p=${encodeURIComponent(input.value.trim())}`)).json();
+    dl.textContent = "";
+    r.entries.slice(0, 200).forEach((e) => dl.append(new Option(e)));
+  }, 250);
+  input.addEventListener("focus", fill);
+  input.addEventListener("input", fill);
+  return dl;
+}
+
+function onDesign(e) {
+  const h = DH[e.target.dataset.field];
+  if (h && h.f.presets && h.f.presets[e.target.value])
+    for (const [k, v] of Object.entries(h.f.presets[e.target.value])) if (DH[k]) DH[k].input.value = v;
+  detect();
+}
+
+function designField(f, value) {
+  const wrap = field({ ...f, id: f.key }, value), input = $("input, select, textarea", wrap);
+  if (f.seq || f.path) input.classList.add("mono");
+  if (f.path) wrap.append(pathList(input, f.path));
+  if (f.note) wrap.append(el("p", "hint note-line", f.note));
+  const hint = el("p", "hint");
+  wrap.append(hint);
+  DH[f.key] = { f, wrap, input, hint };
+  input.addEventListener("input", onDesign);
+  input.addEventListener("change", onDesign);
+  return wrap;
+}
+
+function setDonor(m, clear) {
+  state.donor = m;
+  for (const h of Object.values(DH)) {
+    if (!h.f.mode) continue;
+    h.wrap.hidden = h.f.mode !== m;
+    if (clear && h.f.mode !== m && h.f.type !== "number") h.input.value = "";
+  }
+  for (const b of document.querySelectorAll("#design .donor-seg button")) b.classList.toggle("on", b.dataset.mode === m);
+}
+
+function donorSwitch() {
+  const seg = el("div", "seg small donor-seg");
+  for (const [m, label, ic] of [["fasta", "Donor FASTA", "folder"], ["table", "Supplementary table", "tray"]]) {
+    const b = el("button");
+    b.type = "button";
+    b.dataset.mode = m;
+    b.append(icon(ic), document.createTextNode(label));
+    b.addEventListener("click", () => { setDonor(m, true); detect(); });
+    seg.append(b);
+  }
+  return seg;
+}
+
+function renderDesign(params = state.params, locked = false) {
+  const box = $("#design");
+  if (!box || !state.schema || !state.schema.design) return;
+  box.textContent = "";
+  for (const k of Object.keys(DH)) delete DH[k];
+  box.append(el("h2", null, "Experiment design"),
+    rich("p", "What `02_refs` builds the wild-type and knock-in references from. Every sequence here is located in the reference window as you type. Saved to `configs/param_configs.yaml`; each analysis freezes its own copy when it starts, so saving never changes a run that already exists."));
+  const extra = el("details", "extra");
+  let advanced = false;
+  for (const g of state.schema.design) {
+    const sec = el("div", "group"), head = el("div", "group-head"), fields = el("div", "fields");
+    head.append(el("h4", null, g.name));
+    sec.append(head, fields);
+    for (const f of g.fields) fields.append(designField(f, designValue(params, f.key)));
+    if (g.donor) head.append(donorSwitch());
+    if (g.advanced) { extra.append(sec); advanced = true; } else box.append(sec);
+  }
+  if (advanced) {
+    const su = el("summary");
+    su.append(el("span", "extra-title", "Advanced"), el("span", "extra-sub", "tool internals · change them with docs/manuals open"));
+    extra.prepend(su);
+    box.append(extra);
+  }
+  const geo = el("p", "muted geo");
+  geo.id = "design-geo";
+  const fetchB = pillBtn("Fetch reference window", "plain", "cloud", fetchWindow);
+  fetchB.id = "design-fetch";
+  fetchB.hidden = true;
+  const tb = el("div", "toolbar");
+  tb.append(pillBtn("Save design", "blue", "save", saveDesign), pillBtn("Re-check", "plain", "reload", () => detect(true)), fetchB);
+  const note = el("pre", "note");
+  note.id = "design-status";
+  note.hidden = true;
+  box.append(geo, tb, note);
+  setDonor(designValue(params, "build_refs.donor_ki_fasta") ? "fasta" : "table", false);
+  if (locked) {
+    for (const e of box.querySelectorAll("input, select, textarea, button")) e.disabled = true;
+    note.hidden = false;
+    note.className = "note";
+    note.textContent = `Read-only: these are the parameters of ${state.example === "all" ? "each example, shown from the current file" : `example ${state.example}`}. Save samples applies them to configs/param_configs.yaml. Pick "Example: —" to edit your own design.`;
+  }
+}
+
+function applyDetect(r) {
+  for (const [k, h] of Object.entries(DH)) {
+    const s = (r.fields || {})[k];
+    h.hint.className = "hint";
+    h.hint.textContent = "";
+    h.input.classList.toggle("bad", !!s && s.state === "err");
+    if (s) {
+      h.hint.textContent = s.msg;
+      if (s.state !== "unknown") h.hint.classList.add(s.state === "ok" ? "ok" : s.state === "warn" ? "warn" : "err");
+    }
+    const sg = (r.suggest || {})[k];
+    if (sg !== undefined && String(sg) !== h.input.value.trim()) {
+      const b = el("button", "link", `use ${sg}`);
+      b.type = "button";
+      b.addEventListener("click", () => { h.input.value = sg; detect(true); });
+      if (h.hint.textContent) h.hint.append(document.createTextNode(" · "));
+      h.hint.append(b);
+    }
+  }
+  const d = r.derived || {}, w = r.window || {}, bits = [];
+  if (d.wt_len) bits.push(`WT ${fmt(d.wt_len)} bp`, d.hg38);
+  if (d.guide_strand) bits.push(`guide ${d.guide_strand === "+" ? "+" : "−"}`, `cut after ${fmt(d.cut_site_0b)}`);
+  if (d.lha_len) bits.push(`arms ${fmt(d.lha_len)}/${fmt(d.rha_len)} bp`);
+  if (d.insert_len) bits.push(`insert ${fmt(d.insert_len)} bp`, `KI ${fmt(d.ki_len)} bp`, `${fmt(d.deleted_wt_bp)} bp replaced`);
+  $("#design-geo").textContent = bits.length ? bits.join(" · ") : w.path && !w.cached ? `${w.path} is not downloaded yet` : "";
+  $("#design-fetch").hidden = !w.path || w.cached;
+  const msgs = [...(r.errors || []), ...(r.warnings || [])], n = $("#design-status");
+  n.hidden = !msgs.length;
+  n.className = "note" + ((r.errors || []).length ? " err" : "");
+  n.textContent = msgs.join("\n");
+}
+
+async function runDetect() {
+  if (state.example || !Object.keys(DH).length) return;
+  if (AC) AC.abort();
+  AC = new AbortController();
+  try {
+    const res = await fetch("/api/detect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ design: readDesign() }), signal: AC.signal });
+    applyDetect(await res.json());
+  } catch {}
+}
+
+const detectSoon = debounce(runDetect, 300);
+function detect(now) { return now ? runDetect() : detectSoon(); }
+
+function fanErrors(errs) {
+  for (const h of Object.values(DH)) {
+    const hit = errs.find((e) => e.startsWith(`${h.f.label}:`));
+    if (!hit) continue;
+    h.hint.className = "hint err";
+    h.hint.textContent = hit.slice(h.f.label.length + 1).trim();
+    h.input.classList.add("bad");
+  }
+}
+
+async function saveDesign() {
+  const n = $("#design-status");
+  const res = await fetch("/api/params", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ design: readDesign() }) });
+  const body = await res.json();
+  n.hidden = false;
+  if (!res.ok) {
+    n.className = "note err";
+    n.textContent = `Not saved:\n  ${(body.errors || ["failed"]).join("\n  ")}`;
+    return fanErrors(body.errors || []);
+  }
+  state.params = body.params;
+  n.className = "note";
+  n.textContent = `Saved to ${body.saved} (the previous one is kept as ${body.saved}.bak).`;
+  renderInfo();
+  detect(true);
+}
+
+async function fetchWindow() {
+  const b = $("#design-fetch"), n = $("#design-status");
+  b.disabled = true;
+  n.hidden = false;
+  n.className = "note";
+  n.textContent = "Downloading the reference window from Ensembl…";
+  try {
+    const region = (DH["refs.region"] || {}).input.value.trim();
+    const res = await fetch("/api/fetch_window", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ region }) });
+    const body = await res.json();
+    n.className = res.ok ? "note" : "note err";
+    n.textContent = res.ok ? `${body.path}: ${body.fetched ? "downloaded" : "already cached"}${body.bp ? `, ${fmt(body.bp)} bp` : ""}.` : (body.errors || ["failed"]).join("\n");
+  } finally {
+    b.disabled = false;
+  }
+  detect(true);
+}
+
+function toggleDesign(show) {
+  $("#design").hidden = !show;
+  $("#toggle-design span").textContent = show ? "Hide design" : "Show design";
+  store.set("kv_design", show ? "1" : "0");
+}
+
 function field(f, value) {
   const wrap = el("div", "field" + (f.type === "textarea" ? " wide" : ""));
   const id = `${f.id}_${Math.random().toString(36).slice(2, 8)}`;
@@ -110,6 +334,9 @@ function field(f, value) {
     input = el("input");
     input.type = f.type;
     if (f.step) input.step = f.step;
+    if (f.pattern) input.pattern = f.pattern;
+    if (f.min !== undefined) input.min = f.min;
+    if (f.max !== undefined) input.max = f.max;
     input.value = value ?? f.default ?? "";
   }
   input.id = id;
@@ -237,6 +464,9 @@ async function init() {
   sel.addEventListener("change", () => pickExample(sel.value));
   renderInfo();
   toggleInfo(store.get("kv_info") !== "0");
+  renderDesign();
+  toggleDesign(store.get("kv_design") !== "0");
+  detect(true);
   fill([]);
   if (location.hash === "#perf") togglePerf(true);
   if (!exr.ok) status("No examples: this console server is older than the page (/api/examples not found). Stop it (ctrl-c) and start python3 src/gui_serve.py again.", true);
@@ -255,6 +485,9 @@ function setExample(name) {
   const all = name === "all";
   for (const id of ["#submit", "#add"]) $(id).disabled = all;
   renderRunNote();
+  const ex = state.examples.find((e) => e.name === name);
+  renderDesign(ex ? ex.params : state.params, !!name);
+  if (!name) detect(true);
 }
 
 const allNames = (base) => state.examples.map((e) => `${base || "<name>"}_${e.short}`);
@@ -936,6 +1169,7 @@ $("#perf-refresh").addEventListener("click", refreshPerf);
 $("#perf-filter").addEventListener("change", () => state.perfData && renderRuns(state.perfData.runs));
 setInterval(() => { if (state.perf && $("#perf-auto").checked) refreshPerf(); }, 30000);
 $("#toggle-info").addEventListener("click", () => toggleInfo($("#info").hidden));
+$("#toggle-design").addEventListener("click", () => toggleDesign($("#design").hidden));
 $("#clear").addEventListener("click", clearSamples);
 $("#add").addEventListener("click", () => add());
 $("#reload").addEventListener("click", loadSaved);

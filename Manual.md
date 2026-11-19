@@ -100,7 +100,7 @@
 | ssDNA_r1 | SRR33387464 | RNP + ssDNA donor |
 | ssCTS_r1 | SRR33387474 | RNP + ssCTS donor |
 
-## 7. References (`refs` → `src/refs.sh` → `src/build_refs.py`)
+## 7. References (`refs` → `src/refs.sh` → `src/build_refs.py` → `src/design.py`)
 
 | Term | Definition |
 |---|---|
@@ -160,14 +160,15 @@
 | Step | Action |
 |---|---|
 | 1. samples | console or `configs/samples.tsv`; local reads → `fastq_path` |
-| 2. design | `build_refs:` in `param_configs.yaml`: window, primers, template, guide, `cut_offset_from_guide_5p` (SpCas9 17, AsCas12a 18) |
-| 3. nuclease | CRISPRLungo `--cleavage_pos` = cut offset − 1; `--window` covers all intended mutations |
+| 2. design | console → Samples → **Experiment design**: window, primers, guide, donor, read lengths, checked as you type; or `build_refs:` in `param_configs.yaml` by hand |
+| 3. nuclease | pick it in the design panel: it fills `cut_offset_from_guide_5p` (SpCas9 17, AsCas12a 18, ARCUS 11) and CRISPRLungo `--cleavage_pos` = cut offset − 1; `--window` must cover all intended mutations |
 | 4. dry run | `python3 src/pipeline.py <name> --dry-run`; after `02_refs`, check arms and insert length in `refs/design.json` |
 | 5. run | `python3 src/pipeline.py <name>`; rerun to resume |
 
 | Validation (before run) | Checks |
 |---|---|
 | sample sheet | ids, duplicates, accession format, `fastq_path` exists, one control |
+| design | primers and guide located in the window, arms and insert derived from the donor, region well-formed, one donor source, cut positions consistent (console → **Experiment design**) |
 
 ## 12. Which tool
 

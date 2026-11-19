@@ -252,3 +252,11 @@ td.ours-cell { font-weight: 700; color: #f5c451; }
 .node .bar { height: 6px; margin: 5px 0 2px; }
 .node .lab { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
 td.state-bad { color: var(--red); font-weight: 600; }
+
+.design .mono { font-family: var(--mono); font-size: 15px; }
+.design .hint.warn { color: #9a6700; }
+.design .hint.note-line { opacity: .8; }
+.design .geo { font-variant-numeric: tabular-nums; font-size: 15px; margin: 16px 2px 0; }
+.design .toolbar { margin-top: 12px; }
+.design #design-status { margin-top: 12px; }
+:root[data-theme="dark"] .design .hint.warn { color: var(--orange); }

@@ -31,3 +31,8 @@ Data flow, all inside `results/<analysis>/` except the shared `data/raw/` downlo
 `src/sample_meta.py` is the only writer of `results/<analysis>/meta/`. Steps never touch those files directly; they
 call `kv_meta` with plain `key=value` pairs. Field definitions for the form live in
 `configs/sample_schema.json`, which is the single source of truth for both the form and the JSON.
+
+Its `design` section does the same for the experiment design: one entry per `configs/param_configs.yaml` key, read by the
+console's form, by its validator and by its writer, so the three cannot drift. `src/design.py` holds the derivation
+itself (locate the primers and guide, trim the WT amplicon, derive the arms and insert) and is imported by both
+`src/build_refs.py` and `src/gui_serve.py`, so what the console predicts and what `02_refs` builds are the same code.

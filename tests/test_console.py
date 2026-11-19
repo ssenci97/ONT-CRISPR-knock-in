@@ -42,6 +42,8 @@ def server(tmp_path, monkeypatch):
     monkeypatch.setenv("NODE_PICK", "0")
     for k, v in dict(ROOT=str(tmp_path), RESULTS=str(tmp_path / "results"), GUI=f"{ROOT}/gui",
                      SCHEMA=str(tmp_path / "configs/sample_schema.json"), SAMPLES_TSV=str(tmp_path / "configs/samples.tsv"),
+                     PARAM_YAML=str(tmp_path / "configs/param_configs.yaml"), PINS=str(tmp_path / "configs/refs.sha256"),
+                     RAW_REFS=str(tmp_path / "data/raw_refs"),
                      SAMPLES_DIR=str(tmp_path / "configs/samples"), EXAMPLES=str(tmp_path / "configs/examples"), DEFAULT_SIF=str(tmp_path / "none.sif")).items():
         monkeypatch.setattr(g, k, v)
     monkeypatch.setattr(g.analysis, "ROOT", str(tmp_path))
@@ -285,3 +287,109 @@ def test_perf_marks_what_our_running_jobs_hold_on_nodes_and_partitions(server):
     assert n["genoa02"]["ours_cpus"] == 0 and n["thin001"]["ours_jobs"] == []
     assert (parts["GENOA"]["ours_cpus"], parts["GENOA"]["ours_jobs"], parts["THIN"]["ours_jobs"]) == (16, 1, 0)
     assert c["ours"] == dict(jobs=1, cpus=16, mem_mb=8000, nodes=["genoa01"], analyses=["run_one"])
+
+###################################### design
+
+def window(tmp, region="14:1000..1400:1"):
+    import random
+    random.seed(5); rnd = lambda n: "".join(random.choice("ACGT") for _ in range(n))
+    pf, a, gd, skipped, b, pr = rnd(21), rnd(60), rnd(22), rnd(120), rnd(60), rnd(22)
+    comp = str.maketrans("ACGT", "TGCA")
+    wt = pf + a + gd + skipped + b + pr.translate(comp)[::-1]
+    cut, tail = len(pf + a) + 11, len(pf + a + gd + skipped)
+    other = lambda c: next(x for x in "ACGT" if x != c)
+    cassette = other(wt[cut]) + rnd(48) + other(wt[tail - 1])
+    ki = wt[:cut] + cassette + wt[tail:]
+    d = tmp / "data/raw_refs"; d.mkdir(parents=True, exist_ok=True)
+    (d / "hg38_chr14_1000_1400.fa").write_text(">chromosome:GRCh38:14:1000:1400:1\n" + rnd(40) + wt + rnd(40) + "\n")
+    (tmp / "donor.fa").write_text(">ki\n" + ki + "\n")
+    return dict(region=region, pf=pf, pr=pr, gd=gd, wt=wt, ki=ki, cassette=cassette, cut=cut)
+
+def design_body(w):
+    return {"refs.region": w["region"], "build_refs.primer_f_specific": w["pf"], "build_refs.primer_r_specific": w["pr"],
+            "build_refs.guide": w["gd"], "build_refs.cut_offset_from_guide_5p": 11, "lungo.cleavage_pos": 10,
+            "build_refs.donor_ki_fasta": "donor.fa", "build_refs.templates_xlsx": "", "build_refs.template_title": ""}
+
+def test_detect_locates_the_primers_guide_and_donor(server):
+    base, tmp = server
+    w = window(tmp)
+    r, code = post(f"{base}/api/detect", design=design_body(w))
+    assert code == 200
+    assert [r["fields"][k]["state"] for k in ("refs.region", "build_refs.primer_f_specific", "build_refs.primer_r_specific", "build_refs.guide")] == ["ok"] * 4
+    assert r["derived"]["wt_len"] == len(w["wt"]) and r["derived"]["cut_site_0b"] == w["cut"]
+    assert r["derived"]["guide_strand"] == "+" and r["derived"]["insert_len"] == len(w["cassette"]) and r["derived"]["ki_len"] == len(w["ki"])
+    assert r["window"]["cached"] and r["suggest"]["build_refs.genomic_start_1based"] == 1000
+    assert r["suggest"]["fetch.min_len"] <= len(w["ki"]) <= r["suggest"]["fetch.max_len"]
+
+def test_detect_reports_a_mistyped_primer_without_failing(server):
+    base, tmp = server
+    w = window(tmp)
+    body = design_body(w); body["build_refs.primer_f_specific"] = "T" + w["pf"][1:]
+    r, code = post(f"{base}/api/detect", design=body)
+    assert code == 200 and r["fields"]["build_refs.primer_f_specific"]["state"] == "err"
+    assert r["fields"]["build_refs.primer_f_specific"]["mismatches"] == 1 and "wt_len" not in r["derived"]
+
+def test_detect_asks_for_the_window_when_it_is_not_cached(server):
+    base, tmp = server
+    r, code = post(f"{base}/api/detect", design={"refs.region": "7:500..900:1"})
+    assert code == 200 and r["window"]["cached"] is False
+    assert r["window"]["path"] == "data/raw_refs/hg38_chr7_500_900.fa" and r["fields"]["refs.region"]["state"] == "unknown"
+
+def test_saving_the_design_merges_and_keeps_every_other_key(server):
+    base, tmp = server
+    w = window(tmp)
+    before = (tmp / "configs/param_configs.yaml").read_text()
+    r, code = post(f"{base}/api/params", design=design_body(w))
+    assert code == 200
+    import yaml
+    c = yaml.safe_load((tmp / "configs/param_configs.yaml").read_text())
+    assert c["build_refs"]["guide"] == w["gd"] and c["refs"]["region"] == w["region"]
+    assert c["build_refs"]["genomic_fasta"] == "data/raw_refs/hg38_chr14_1000_1400.fa" and c["build_refs"]["genomic_start_1based"] == 1000
+    assert c["gui_serve"] == yaml.safe_load(before)["gui_serve"] and c["alpine"] == yaml.safe_load(before)["alpine"]
+    assert (tmp / "configs/param_configs.yaml.bak").read_text() == before
+    assert get(f"{base}/api/params")["build_refs"]["guide"] == w["gd"]
+
+def test_saving_the_design_is_a_no_op_when_nothing_changed(server):
+    base, tmp = server
+    import yaml
+    c = yaml.safe_load((tmp / "configs/param_configs.yaml").read_text())
+    fields = json.load(open(tmp / "configs/sample_schema.json"))["design"]
+    body = {f["key"]: c[f["key"].split(".")[0]][f["key"].split(".", 1)[1]] for gr in fields for f in gr["fields"]
+            if f["key"].split(".", 1)[1] in c.get(f["key"].split(".")[0], {})}
+    before = (tmp / "configs/param_configs.yaml").read_text()
+    _, code = post(f"{base}/api/params", design=body)
+    assert code == 200 and (tmp / "configs/param_configs.yaml").read_text() == before
+
+def test_a_bad_design_is_refused_and_nothing_is_written(server):
+    base, tmp = server
+    before = (tmp / "configs/param_configs.yaml").read_text()
+    r, code = post(f"{base}/api/params", design={"refs.region": "14:9..1:1", "build_refs.guide": "GATTACAX"})
+    assert code == 400 and any("only A, C, G and T" in e for e in r["errors"])
+    assert any("hg38 window" in e for e in r["errors"])
+    assert (tmp / "configs/param_configs.yaml").read_text() == before
+    r, code = post(f"{base}/api/params", design={"nope.key": 1})
+    assert code == 400 and r["errors"] == ["unknown parameter nope.key"]
+
+def test_saving_the_design_never_touches_the_examples(server):
+    base, tmp = server
+    w = window(tmp)
+    ex = tmp / "configs/examples/example_nitulescu/param_configs.yaml"
+    before = ex.read_text()
+    _, code = post(f"{base}/api/params", design=design_body(w))
+    assert code == 200 and ex.read_text() == before
+
+def test_examples_carry_their_own_parameters(server):
+    base, tmp = server
+    by = {e["short"]: e for e in get(f"{base}/api/examples")["examples"]}
+    assert by["arcus"]["params"]["build_refs"]["guide"] != by["nitulescu"]["params"]["build_refs"]["guide"]
+
+def test_fetch_window_refuses_a_malformed_region(server):
+    base, tmp = server
+    r, code = post(f"{base}/api/fetch_window", region="chr14")
+    assert code == 400 and "hg38 window" in r["errors"][0]
+
+def test_path_suggests_by_kind_and_keeps_repo_relative_paths(server):
+    base, tmp = server
+    (tmp / "reads").mkdir(); (tmp / "reads/x.fastq.gz").write_text(""); (tmp / "reads/ref.fa").write_text("")
+    assert get(f"{base}/api/path?p=reads/&kind=fa")["entries"] == ["reads/ref.fa"]
+    assert get(f"{base}/api/path?p=reads/")["entries"] == ["reads/x.fastq.gz"]

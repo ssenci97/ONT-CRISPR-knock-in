@@ -120,9 +120,11 @@
      "options": [
       "AsCas12a",
       "SpCas9",
+      "ARCUS",
       "other"
      ],
-     "default": "AsCas12a"
+     "default": "AsCas12a",
+     "help": "provenance only; the nuclease the pipeline uses is set in the experiment design"
     },
     {
      "id": "guide_name",
@@ -167,6 +169,246 @@
     }
    ],
    "optional": true
+  }
+ ],
+ "design": [
+  {
+   "name": "Experiment",
+   "fields": [
+    {
+     "key": "refs.region",
+     "label": "hg38 window",
+     "type": "text",
+     "detect": true,
+     "required": true,
+     "pattern": "^[A-Za-z0-9_.]+:[0-9]+\\.\\.[0-9]+:(1|-1)$",
+     "help": "14:22540000..22560000:1",
+     "note": "Ensembl REST region. Changing it re-derives the cached FASTA name and start coordinate."
+    },
+    {
+     "key": "fetch.bioproject",
+     "label": "BioProject",
+     "type": "text",
+     "pattern": "^PRJ[A-Z]{2}[0-9]+$",
+     "help": "PRJNA1257358",
+     "note": "Only used to check downloaded SRA runs against the ENA run table. Not needed when every sample is a local FASTQ."
+    },
+    {
+     "key": "refs.pmc",
+     "label": "Europe PMC id",
+     "type": "text",
+     "pattern": "^PMC[0-9]+$",
+     "help": "PMC12166421",
+     "note": "Paper whose supplementary files hold the donor template table."
+    }
+   ]
+  },
+  {
+   "name": "Nuclease and guide",
+   "fields": [
+    {
+     "key": "build_refs.nuclease",
+     "label": "Nuclease",
+     "type": "select",
+     "options": [
+      "AsCas12a",
+      "SpCas9",
+      "ARCUS",
+      "custom"
+     ],
+     "default": "AsCas12a",
+     "presets": {
+      "AsCas12a": {
+       "build_refs.cut_offset_from_guide_5p": 18,
+       "lungo.cleavage_pos": 17
+      },
+      "SpCas9": {
+       "build_refs.cut_offset_from_guide_5p": 17,
+       "lungo.cleavage_pos": 16
+      },
+      "ARCUS": {
+       "build_refs.cut_offset_from_guide_5p": 11,
+       "lungo.cleavage_pos": 10
+      }
+     },
+     "note": "Fills the two cut positions below. Not read by any tool."
+    },
+    {
+     "key": "build_refs.guide",
+     "label": "Guide spacer (5'->3')",
+     "type": "text",
+     "seq": true,
+     "detect": true,
+     "required": true,
+     "help": "GAGTCTCTCAGCTGGTACACGGC",
+     "note": "Located in the WT amplicon on either strand; its 5' end anchors the cut."
+    },
+    {
+     "key": "build_refs.cut_offset_from_guide_5p",
+     "label": "Cut offset from guide 5'",
+     "type": "number",
+     "min": 0,
+     "max": 40,
+     "detect": true,
+     "note": "Distance of the cut from the guide's 5' end. Always one more than CRISPRLungo's cleavage_pos."
+    },
+    {
+     "key": "lungo.cleavage_pos",
+     "label": "CRISPRLungo cleavage_pos",
+     "type": "number",
+     "min": 0,
+     "max": 40,
+     "detect": true,
+     "note": "0-based index in the guide of the last base 5' of the cut."
+    }
+   ]
+  },
+  {
+   "name": "Primers",
+   "fields": [
+    {
+     "key": "build_refs.primer_f_specific",
+     "label": "Forward primer, gene-specific",
+     "type": "text",
+     "seq": true,
+     "detect": true,
+     "required": true,
+     "help": "TTCAATCACTGCTGTGTCCCT",
+     "note": "Must be found exactly in the window: it sets the amplicon's left end."
+    },
+    {
+     "key": "build_refs.primer_r_specific",
+     "label": "Reverse primer, gene-specific",
+     "type": "text",
+     "seq": true,
+     "detect": true,
+     "required": true,
+     "help": "TCCCACCCCAGACCTCCTAGTT",
+     "note": "Searched as its reverse complement; it sets the amplicon's right end."
+    },
+    {
+     "key": "build_refs.primer_f_full",
+     "label": "Forward primer, full",
+     "type": "text",
+     "seq": true,
+     "help": "with adapters",
+     "note": "Passed to ALPINE as primer_1, adapters included."
+    },
+    {
+     "key": "build_refs.primer_r_full",
+     "label": "Reverse primer, full",
+     "type": "text",
+     "seq": true,
+     "help": "with adapters",
+     "note": "Passed to ALPINE as primer_2, adapters included."
+    }
+   ]
+  },
+  {
+   "name": "Donor",
+   "donor": true,
+   "fields": [
+    {
+     "key": "build_refs.donor_ki_fasta",
+     "label": "Donor KI allele (FASTA)",
+     "type": "text",
+     "path": "fa",
+     "detect": true,
+     "mode": "fasta",
+     "help": "configs/examples/example_arcus/donor_ki.fa",
+     "note": "A WT-flanked knock-in allele: the homology arms and the insert are derived from where it differs from the WT amplicon."
+    },
+    {
+     "key": "build_refs.templates_xlsx",
+     "label": "Supplementary table (xlsx)",
+     "type": "text",
+     "path": "xlsx",
+     "detect": true,
+     "mode": "table",
+     "help": "data/raw_refs/supp/mmc2.xlsx",
+     "note": "Sheet 'Table S1' with Full Sequence, Left Homology Arm and Right Homology Arm rows."
+    },
+    {
+     "key": "build_refs.template_title",
+     "label": "Template title",
+     "type": "text",
+     "detect": true,
+     "mode": "table",
+     "help": "TRAC CD19-CAR HDR template for editing with AsCas12a",
+     "note": "Exact title of the row to use as the donor."
+    },
+    {
+     "key": "build_refs.flank_bp",
+     "label": "Arm length from donor (bp)",
+     "type": "number",
+     "min": 0,
+     "max": 5000,
+     "mode": "fasta",
+     "note": "How much WT either side of the insert to record as a homology arm. Only used with a donor FASTA."
+    }
+   ]
+  },
+  {
+   "name": "Scoring and reads",
+   "fields": [
+    {
+     "key": "fetch.min_len",
+     "label": "Shortest read kept (bp)",
+     "type": "number",
+     "min": 0,
+     "suggest": true,
+     "note": "Reads below this are dropped before any tool sees them. Nothing is subsampled."
+    },
+    {
+     "key": "fetch.max_len",
+     "label": "Longest read kept (bp)",
+     "type": "number",
+     "min": 0,
+     "suggest": true,
+     "note": "Removes concatemers and chimeras much longer than the knock-in amplicon."
+    },
+    {
+     "key": "shared.ki_min_insert_frac",
+     "label": "Minimum insert fraction for a knock-in",
+     "type": "number",
+     "step": "0.01",
+     "min": 0,
+     "max": 1,
+     "note": "Applied to both tools so their percentages answer the same question."
+    },
+    {
+     "key": "lungo.window",
+     "label": "CRISPRLungo scoring window (bp)",
+     "type": "number",
+     "min": 1,
+     "max": 1000,
+     "note": "Half-width around the cut in which edits are scored. It must cover every intended mutation, including PAM-blocking changes far from the cut."
+    }
+   ]
+  },
+  {
+   "name": "Tool internals",
+   "advanced": true,
+   "fields": [
+    {
+     "key": "alpine.primer_check_length",
+     "label": "ALPINE primer_check_length",
+     "type": "number",
+     "min": 1,
+     "max": 1000,
+     "note": "Bases at each read end in which ALPINE looks for the primers. 150 here because our primers carry ONT adapters."
+    },
+    {
+     "key": "alpine.data_type",
+     "label": "ALPINE data_type",
+     "type": "select",
+     "options": [
+      "nanopore",
+      "pacbio-hifi"
+     ],
+     "note": "nanopore also makes the pipeline patch ALPINE's hard-coded minimap2 map-hifi preset into map-ont."
+    }
+   ]
   }
  ],
  "info": {
@@ -267,6 +509,12 @@
     "meaning": "Exact title of the row in the supplementary table to use as donor; selects the knock-in construct.",
     "used_by": "02_refs",
     "arg": "`build_refs.py --yaml-in`"
+   },
+   {
+    "key": "build_refs.nuclease",
+    "meaning": "Nuclease used, chosen in the console's design panel. It fills cut_offset_from_guide_5p and lungo.cleavage_pos with the pair that matches it (AsCas12a 18/17, SpCas9 17/16, ARCUS 11/10) and is stored so the choice survives a reload. No tool reads it.",
+    "used_by": "console only",
+    "arg": "none"
    },
    {
     "key": "build_refs.guide",
