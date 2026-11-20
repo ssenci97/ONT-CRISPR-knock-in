@@ -80,3 +80,15 @@ def test_control_sample_prefers_mock_whatever_the_row_order():
     assert a.control_sample({"A": treated, "B": nod}) == "B"
     assert a.control_sample({"A": treated}) is None
     assert a.control_sample({"A": treated, "B": {"control": "1"}}) == "B"
+
+def test_lungo_omits_control_for_the_control_sample_itself(tmp_path):
+    p = load("pipeline")
+    r = repo(tmp_path, SHEET)
+    (tmp_path / "configs/param_configs.yaml").write_text(
+        "shared:\n  ki_min_insert_frac: 0.8\nfetch:\n  bioproject: PRJNA1\n  min_len: 1\n  max_len: 9\n"
+        "lungo:\n  cleavage_pos: 17\n  window: 25\n"
+        "alpine:\n  primer_check_length: 150\n  data_type: nanopore\n  variant_window: 25\n")
+    a.create("run1", r)
+    jobs = {j["key"]: j for j in p.plan("run1", r)}
+    assert jobs["lungo_A"]["args"][2] == "none" and jobs["lungo_A"]["args"][3] == "self (omitted)"
+    assert jobs["lungo_B"]["args"][2].endswith("/data/A.fastq.gz") and jobs["lungo_B"]["args"][3] == "A"

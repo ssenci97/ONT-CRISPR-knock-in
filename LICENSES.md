@@ -14,8 +14,8 @@ obtain the corresponding source: the image ships the full CRISPRLungo git clone 
 
 ## Copied documentation
 
-Verbatim copies of both tools' own documentation are kept in [`docs/upstream/`](docs/upstream/), with
-per-file source URLs and sha256s in [`docs/upstream/README.md`](docs/upstream/README.md). Both licences
+Verbatim copies of both tools' own documentation are kept in [`docs/manuals/`](docs/manuals/), with
+per-file source URLs and sha256s in [`docs/manuals/README.md`](docs/manuals/README.md). Both licences
 permit this as long as the notices travel with the copies, which they do via this file and `LICENSES/`.
 
 The papers and the example dataset's supplementary table are **not** copied — the example paper is

@@ -20,6 +20,13 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const tierOf = (g) => g.tier || "required";
+const TIERS = [
+  ["required", "Required", "Fill these in - the analysis cannot start without them."],
+  ["optional", "Optional", "Sensible defaults already set, plus the fields only public data needs."],
+  ["advanced", "Advanced", "Tool internals - leave these alone unless you know the tool."],
+  ["derived", "Filled in for you", "Worked out from your region or learned from earlier runs. You never type these."],
+];
 const human = (b) => (b > 1e9 ? `${(b / 1e9).toFixed(2)} GB` : b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} kB`);
 
 function table(head, rows, valCols = []) {
@@ -55,7 +62,7 @@ function renderInfo() {
   const info = state.schema.info || {}, box = $("#info");
   box.textContent = "";
   box.append(el("h2", null, "Inputs and parameters"),
-    el("p", null, "What each input is, which step reads it, and how every variable in configs/param_configs.yaml maps to the original tool arguments. Values are the current ones; each analysis freezes its own copy in results/<analysis>/inputs/params.yaml."));
+    el("p", null, "What every input and setting means, which step uses it, and the original tool argument it maps to. The values shown are the ones in use now; each analysis freezes its own copy when it starts."));
   box.append(el("h4", null, "Input data types"));
   const ui = el("ul", "vars");
   for (const x of info.inputs || []) {
@@ -66,16 +73,26 @@ function renderInfo() {
   }
   box.append(ui);
   box.append(el("h4", null, "Variables"));
-  const ul = el("ul", "vars");
-  for (const x of info.params || []) {
-    const li = el("li"), head = el("div", "var-head");
-    head.append(el("code", "key", x.key));
-    const v = paramValue(x.key);
-    if (v !== "—") head.append(el("span", "eq", "="), el("code", "val", v));
-    li.append(head, rich("p", x.meaning), rich("p", `Step: ${x.used_by} · Original argument: ${x.arg}`, "where"));
-    ul.append(li);
+  for (const [t, title, sub] of TIERS) {
+    const xs = (info.params || []).filter((x) => tierOf(x) === t);
+    if (!xs.length) continue;
+    box.append(el("h5", "tier-head", title), el("p", "hint", sub));
+    const ul = el("ul", "vars");
+    for (const x of xs) {
+      const li = el("li"), head = el("div", "var-head");
+      head.append(el("code", "key", x.key));
+      const v = paramValue(x.key);
+      if (v !== "—") head.append(el("span", "eq", "="), el("code", "val", v));
+      li.append(head, rich("p", x.meaning), rich("p", `Step: ${x.used_by} · Original argument: ${x.arg}`, "where"));
+      ul.append(li);
+    }
+    box.append(ul);
   }
-  box.append(ul);
+  for (const n of info.notes || []) {
+    box.append(el("h4", null, n.name));
+    for (const b of n.body) box.append(rich("p", b));
+    if (n.table) box.append(table(n.table.head, n.table.rows));
+  }
   box.append(el("h4", null, "Original command lines"));
   for (const c of info.commands || []) {
     box.append(el("p", null, `${c.step} · ${c.tool}`), el("pre", "cmd", c.cmd));
@@ -139,9 +156,15 @@ function onDesign(e) {
 
 function designField(f, value) {
   const wrap = field({ ...f, id: f.key }, value), input = $("input, select, textarea", wrap);
+  $("label", wrap).append(el("code", "keychip", f.key));
   if (f.seq || f.path) input.classList.add("mono");
   if (f.path) wrap.append(pathList(input, f.path));
   if (f.note) wrap.append(el("p", "hint note-line", f.note));
+  if (f.more) {
+    const det = el("details", "more");
+    det.append(el("summary", null, f.more_label || "Why?"), rich("p", f.more));
+    wrap.append(det);
+  }
   const hint = el("p", "hint");
   wrap.append(hint);
   DH[f.key] = { f, wrap, input, hint };
@@ -179,22 +202,31 @@ function renderDesign(params = state.params, locked = false) {
   box.textContent = "";
   for (const k of Object.keys(DH)) delete DH[k];
   box.append(el("h2", null, "Experiment design"),
-    rich("p", "What `02_refs` builds the wild-type and knock-in references from. Every sequence here is located in the reference window as you type. Saved to `configs/param_configs.yaml`; each analysis freezes its own copy when it starts, so saving never changes a run that already exists."));
-  const extra = el("details", "extra");
-  let advanced = false;
+    rich("p", "Describe your experiment once: the piece of genome you amplified, your guide, your primers and your donor. The console checks each sequence as you type and builds the reference files the two tools compare your reads against. Saved to `configs/param_configs.yaml`, and each analysis keeps its own frozen copy, so saving never changes a run that already exists."),
+    rich("p", "The four groups below are the ones you must fill in. Everything else has a working default and is collapsed at the bottom.", "hint note-line"));
+  const bins = { optional: el("details", "extra"), advanced: el("details", "extra") }, has = {};
   for (const g of state.schema.design) {
     const sec = el("div", "group"), head = el("div", "group-head"), fields = el("div", "fields");
     head.append(el("h4", null, g.name));
-    sec.append(head, fields);
+    sec.append(head);
+    if (g.note) sec.append(rich("p", g.note, "hint note-line design-note"));
+    if (g.more) {
+      const det = el("details", "more");
+      det.append(el("summary", null, g.more_label || "Why?"), rich("p", g.more));
+      sec.append(det);
+    }
+    sec.append(fields);
     for (const f of g.fields) fields.append(designField(f, designValue(params, f.key)));
     if (g.donor) head.append(donorSwitch());
-    if (g.advanced) { extra.append(sec); advanced = true; } else box.append(sec);
+    const t = tierOf(g);
+    if (bins[t]) { bins[t].append(sec); has[t] = true; } else box.append(sec);
   }
-  if (advanced) {
+  for (const [t, title, sub] of TIERS) {
+    if (!has[t]) continue;
     const su = el("summary");
-    su.append(el("span", "extra-title", "Advanced"), el("span", "extra-sub", "tool internals · change them with docs/manuals open"));
-    extra.prepend(su);
-    box.append(extra);
+    su.append(el("span", "extra-title", title), el("span", "extra-sub", sub));
+    bins[t].prepend(su);
+    box.append(bins[t]);
   }
   const geo = el("p", "muted geo");
   geo.id = "design-geo";
@@ -405,7 +437,7 @@ function card(values = {}) {
     sec.append(el("h4", null, g.name));
     for (const f of g.fields) fields.append(field(f, values[f.id]));
     sec.append(fields);
-    if (g.optional) { extra.append(sec); names.push(g.name.toLowerCase()); } else groups.append(sec);
+    if (tierOf(g) === "optional") { extra.append(sec); names.push(g.name.toLowerCase()); } else groups.append(sec);
   }
   if (names.length) {
     const su = el("summary");

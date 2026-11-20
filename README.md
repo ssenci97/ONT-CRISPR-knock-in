@@ -8,108 +8,50 @@ KNOCKIN-VAL is a toolkit for validating CRISPR knock-in experiments with Oxford 
 |---|---|
 | **Scope** | ONT reads of CRISPR knock-in PCR amplicons; tools with a native knock-in readout only |
 | **Runs on** | a SLURM HPC cluster with Singularity/Apptainer; jobs are placed by `get_best_node` |
-| **Full reference** | [Manual.md](Manual.md) · [ALPINE](docs/manuals/ALPINE.md) · [CRISPRLungo](docs/manuals/CRISPRLungo.md) · [Inputs](docs/manuals/Inputs.md) |
+| **Full reference** | [Manual.md](Manual.md) — everything this pipeline does. The two tools' own manuals are copied verbatim into [`docs/manuals/`](docs/manuals/). |
 
-## Inputs and parameters
+## How it works
 
-The console's info panel shows the same definitions, together with the current values.
+You give KNOCKIN-VAL two things: the **reads** from your amplicon sequencing run, and a **description of the
+experiment** — which bit of the genome you amplified, which guide you used, which primers, and what the donor
+was meant to insert. Everything after that is automatic.
 
-### Input data types
+**First it tidies the reads.** Each sample's FASTQ is filtered by length, throwing away fragments far too short
+or far too long to be your amplicon. Nothing is subsampled: every read that passes is used.
 
-- **FASTQ (local)** (gzipped FASTQ (`.fastq.gz`), one file per sample, absolute path on the cluster): The preferred source. Step `01_fetch` length-filters it with seqkit into `results/<analysis>/data/<sample_id>.fastq.gz`; the original file is never modified. A file outside `$HOME` and the repo needs `--bind <dir>` in `apptainer-args` (local FASTQ directories are bound automatically).
-- **SRA run accession** (`SRR` / `ERR` / `DRR` followed by digits): The alternative source, for public data. Step `01_fetch` checks the read count against ENA, downloads the `.sra` file, converts it with `fasterq-dump` and keeps it in the shared cache `data/raw/<run>.fastq.gz`, so later analyses reuse it.
-- **sample_id** (letters, digits, underscore): The row key. It names every file, log and SLURM job of the sample, so it must be unique within the sheet.
-- **condition** (free text): A human-readable label for the treatment, e.g. `rnp_dsDNA_donor`. Carried into `summary.tsv` and the KI % matrix; not interpreted by the tools.
-- **control_tier** (`treated` / `no_donor` / `mock`): What the sample was given, which is what makes it a control or not. At least one `mock` or `no_donor` row is required. CRISPRLungo's `--control` is the first `mock`, and failing that the first `no_donor` — a fixed rule, so the choice never depends on row order.
+**Then it builds the two sequences everything is measured against.** From the genome region and your primers it
+reconstructs the *wild-type amplicon* — what an unedited allele looks like. From your donor it works out the
+*knock-in allele* — what a correctly edited one should look like — along with the homology arms and the inserted
+sequence itself. This is the step where a typo in a primer or guide surfaces, which is why the console checks
+those sequences as you type rather than waiting for the run.
 
-| Tier | Nuclease | Donor | What it measures | Expected KI % |
-|---|---|---|---|---|
-| `mock` | ✗ | ✗ | the sequencing and mapping error floor | ≈ 0 |
-| `no_donor` | ✓ | ✗ | knock-ins called where knock-in is impossible — the false-positive floor | ≈ 0 |
-| `treated` | ✓ | ✓ | the knock-in itself | the measurement |
+**Then two separate tools read the same reads, independently.** ALPINE and CRISPRLungo were written by different
+groups and disagree about what counts as a knock-in. ALPINE is strict: it wants both junctions to match your
+homology arms before it calls a read a precise knock-in. CRISPRLungo is broader: it looks for your inserted
+sequence at the cut site, whether or not the junctions are perfect. Neither is "right" — they answer slightly
+different questions.
 
-  Both tiers matter and they are not interchangeable. `mock` is the cleaner background for CRISPRLungo's error model, because no allele in it was cut. `no_donor` is the one that bounds the knock-in claim: it is the only sample where a `HDR-*` call is certainly wrong, so its KI % is the floor the treated samples must clear. A sheet with only `treated` rows is refused.
-- **Wet-lab and sequencing fields** (free text, dates, numbers): Provenance only. Stored in `configs/samples/<sample_id>.json` and copied into `results/<analysis>/meta/`; never read by the tools.
-- **References (built by `02_refs`)** (`TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `alpine/ref.fa`, `alpine/config.tsv`, `design.json`): Control (unedited) and knock-in amplicons, the inserted gene, guide, primers and homology arms. Built from a genome window (`refs.region`) and the donor template table of the paper (`refs.pmc`). The files are named after the example locus (`TRAC`, `CAR`); their roles are the same for any target.
-  `design.json`'s `deleted_wt_bp_between_arms` is **−4** for the example design: the published homology arms overlap by 4 bp rather than deleting WT sequence between them, so the KI allele is 4 bp longer than WT + insert. That is a property of the paper's template, not a bug in `build_refs.py` — do not "correct" the negative value.
+**Finally it puts both answers side by side.** You get one table with each tool's knock-in percentage per
+sample. When the two agree, you can believe the number. When they disagree, the gap is informative: ALPINE much
+lower than CRISPRLungo usually means real integration with imperfect junctions, which is a result, not an error.
+Reads that are neither clean wild-type nor a full knock-in are not discarded — they are reported as partial
+knock-ins and as a full breakdown of outcome classes.
 
-![inputs](docs/img/01_inputs.svg)
+**Controls carry the whole thing.** At least one control sample is required: a *mock* (no nuclease, no donor),
+or failing that a *no donor* (nuclease but nothing to insert). The no-donor control is the important one,
+because any "knock-in" called in a sample with no donor present is by definition a false positive — it sets the
+floor your real samples have to clear.
 
-### Variables (`configs/param_configs.yaml`)
+| Step | What happens | What it produces |
+|---|---|---|
+| `01_fetch` | reads are length-filtered (or downloaded first, for public data) | one clean FASTQ per sample |
+| `02_refs` | the wild-type and knock-in sequences are reconstructed | the references both tools compare against |
+| `03_alpine` | ALPINE classifies every read | precise knock-ins only |
+| `04_lungo` | CRISPRLungo classifies every read | knock-ins plus the full outcome spectrum |
+| `05_summary` | both tools' answers are merged | `summary.tsv` and the console's Results tab |
 
-Each variable is listed with what it controls, the step that reads it, and the original argument it maps to in the tool.
-
-- `shared.ki_min_insert_frac`: Minimum fraction of the inserted gene that a read must cover to be counted as a knock-in. 0.8 means at least 80% of the insert must be present; shorter, truncated integrations are not counted. The same threshold is applied to both tools so their percentages are comparable.
-  - step: `03_alpine`, `05_summary`
-  - original argument: ALPINE `truncated_cutoff` in job.yaml; for CRISPRLungo it is applied afterwards by `summarize.py` on the merged insert blocks
-- `fetch.bioproject`: NCBI/ENA BioProject that the SRA runs belong to. Only used to download the run table from ENA, so that every downloaded run can be checked against its expected read count. Not needed when all samples are local FASTQ files.
-  - step: `01_fetch` (jobs ena, download)
-  - original argument: ENA filereport `accession=`
-- `fetch.min_len`: Shortest read kept, in bp. Reads below this length are dropped before any tool sees them (primer dimers, broken reads). Nothing is subsampled: all passing reads are used. Note that 3500 sits below the 4358 bp WT amplicon, so any allele with a deletion larger than ~860 bp is removed before either tool sees it — a silent floor on large-deletion detection. It applies to both tools equally, so the KI % comparison is unaffected.
-  - step: `01_fetch` (job filter)
-  - original argument: `seqkit seq -m`
-- `fetch.max_len`: Longest read kept, in bp. Removes concatemers and chimeric reads much longer than the knock-in amplicon.
-  - step: `01_fetch` (job filter)
-  - original argument: `seqkit seq -M`
-- `refs.region`: hg38 genomic window (chromosome:start..end:strand) that contains the amplicon. Downloaded once from Ensembl and pinned by sha256.
-  - step: `02_refs`
-  - original argument: Ensembl REST `/sequence/region/human/<region>`
-- `refs.pmc`: Europe PMC id of the paper whose supplementary table holds the HDR donor templates. Downloaded once and pinned by sha256.
-  - step: `02_refs`
-  - original argument: Europe PMC `supplementaryFiles`
-- `build_refs.genomic_fasta`: Local path of the cached hg38 window downloaded from `refs.region`.
-  - step: `02_refs`
-  - original argument: `build_refs.py --yaml-in`
-- `build_refs.genomic_start_1based`: 1-based genomic coordinate of the first base of `genomic_fasta`; converts positions in the window back to hg38 coordinates.
-  - step: `02_refs`
-  - original argument: `build_refs.py --yaml-in`
-- `build_refs.templates_xlsx`: Supplementary spreadsheet containing the donor templates (full sequence and homology arms).
-  - step: `02_refs`
-  - original argument: `build_refs.py --yaml-in`
-- `build_refs.template_title`: Exact title of the row in the supplementary table to use as donor; selects the knock-in construct.
-  - step: `02_refs`
-  - original argument: `build_refs.py --yaml-in`
-- `build_refs.nuclease`: Nuclease used, chosen in the console's design panel. It fills `cut_offset_from_guide_5p` and `lungo.cleavage_pos` with the pair that matches it (AsCas12a 18/17, SpCas9 17/16, ARCUS 11/10) and is stored so the choice survives a reload. No tool reads it.
-  - step: `console only`
-  - original argument: none
-- `build_refs.guide`: crRNA spacer sequence (5'->3'). Locates the cut site in the wild-type amplicon and is passed to CRISPRLungo.
-  - step: `02_refs`, `04_lungo`
-  - original argument: CRISPRlungo positional `<guide>`
-- `build_refs.cut_offset_from_guide_5p`: Distance of the cut from the 5' end of the guide: 17 for SpCas9, 18 for AsCas12a. Wrong values shift the expected integration site.
-  - step: `02_refs`
-  - original argument: `build_refs.py --yaml-in`
-- `build_refs.primer_f_full` / `primer_r_full`: Full PCR primers including adapters; define the amplicon ends that ALPINE searches for in each read.
-  - step: `02_refs`, `03_alpine`
-  - original argument: ALPINE `primer_1` / `primer_2` in job.yaml
-- `build_refs.primer_f_specific` / `primer_r_specific`: Gene-specific part of the primers only; used to locate the amplicon in the hg38 window.
-  - step: `02_refs`
-  - original argument: `build_refs.py --yaml-in`
-- `alpine.primer_check_length`: Number of bases at each read end in which ALPINE looks for the primers. Reads whose primers are not found there are discarded as incomplete amplicons.
-  - step: `03_alpine`
-  - original argument: ALPINE `primer_check_length` in job.yaml
-- `alpine.data_type`: Read technology. `nanopore` tells ALPINE to expect ONT errors and also makes the pipeline patch ALPINE's hard-coded `minimap2 -ax map-hifi` into `map-ont`.
-  - step: `03_alpine`
-  - original argument: ALPINE `data_type` in job.yaml
-- `lungo.cleavage_pos`: Position of the cut inside the guide as CRISPRLungo counts it; centres the window where edits are scored.
-  - step: `04_lungo`
-  - original argument: CRISPRlungo `--cleavage_pos`
-- `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise. **Do not lower this below 21 for the example design:** the donor's PAM-blocking mutations sit at cut −3..0 and at **+20 bp**, so 25 clears the furthest one by only 4 bp. At the upstream default of 5 that mutation falls outside the window and CRISPRLungo warns.
-  - step: `04_lungo`
-  - original argument: CRISPRlungo `--window`
-- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job. CPUs start from the per-tool defaults (`RES` in `src/pipeline.py`) and are lowered to what earlier runs actually used; memory and time are learned from earlier runs (see [SLURM use](#slurm-use-agency-profiles-a-ceiling-learned-memory)).
-  - step: `every step`
-  - original argument: `sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin
-
-Each analysis freezes its own copy of these values in `results/<analysis>/inputs/params.yaml`.
-
-### Original command lines
-
-| Step | Command |
-|---|---|
-| `01_fetch` | `seqkit seq -j <threads> -g -G - -m <min_len> -M <max_len> <raw.fastq.gz> -o data/<sample_id>.fastq.gz` |
-| `03_alpine` | `cwltool --no-container aav_per_sample_workflow.cwl job.yaml` (fastqfile, reffile, config, primer_1/2, primer_check_length, data_type, truncated_cutoff, five/three_prime_HA_seq) |
-| `04_lungo` | `CRISPRlungo TRAC_WT.fa <sample.fastq.gz> <out> <guide> --cleavage_pos <cp> --window <w> --control <control.fastq.gz> --induced_sequence_path TRAC_KI.fa --integration_file CAR_insert.fa -t <threads>` |
-| `05_summary` | `python3 src/summarize.py --analysis-dir results/<analysis>` — writes `ki_reads`/`ki_pct`, `partial_reads`/`partial_pct` and the per-class `notes` |
+Each run is called an **analysis** and gets its own folder under `results/`. When it starts, it takes a frozen
+copy of your samples and settings, so editing them afterwards never changes a run that already happened.
 
 ## Quick start (SLURM HPC cluster)
 
@@ -140,7 +82,7 @@ Each sample card has a **Local file | SRA** switch, with Local file as the defau
 
 ![samples: cards](docs/img/gui_samples_example.png)
 
-Above the cards sits **Experiment design**: the parameters `02_refs` builds the references from, which used to be hand-edited in `configs/param_configs.yaml`. As you type, the console locates each primer and the guide in the reference window and reports the position, the strand and any mismatch; it derives the homology arms, the insert and the knock-in length from the donor and suggests the read-length filters from them. The **Nuclease** selector fills the two cut positions (`cut_offset_from_guide_5p` and CRISPRLungo's `cleavage_pos`), which must always differ by one. The **Donor FASTA | Supplementary table** switch picks which of the two donor sources is used, so an ambiguous configuration cannot be expressed. Tool internals sit under **Advanced**. While an example is selected the panel is read-only and shows that example's parameters, because **Save samples** applies them to `configs/param_configs.yaml`.
+Above the cards sits **Experiment design**: the parameters `02_refs` builds the references from, which used to be hand-edited in `configs/param_configs.yaml`. As you type, the console locates each primer and the guide in the reference window and reports the position, the strand and any mismatch; it derives the homology arms, the insert and the knock-in length from the donor and suggests the read-length filters from them. The **Nuclease** selector fills the two cut positions (`cut_offset_from_guide_5p` and CRISPRLungo's `cleavage_pos`), which must always differ by one. The **Donor FASTA | Supplementary table** switch picks which of the two donor sources is used, so an ambiguous configuration cannot be expressed. The panel is split the same way as the variables above: the four required groups — reference window, nuclease and guide, primers, donor — are shown open, while **Optional** (read filters, scoring, the public-data fields) and **Advanced** (tool internals) stay collapsed, so a minimal design is the four groups on screen. Required fields carry a red asterisk and **Save design** refuses to write a design that is missing one. The **Primers** group explains why the gene-specific and full pairs are both asked for (see [Why two primer pairs](#why-two-primer-pairs)) and checks one against the other as you type. While an example is selected the panel is read-only and shows that example's parameters, because **Save samples** applies them to `configs/param_configs.yaml`.
 
 | Term | Definition |
 |---|---|
@@ -199,6 +141,167 @@ The Results tab on the example data, in the **one plot per sample** layout.
 | `channel … connect failed` | console not listening on that node |
 | `-L 8000:<node>:8000 <user>@<login-host>` refused | console binds loopback; use `-J` |
 | ssh to node refused | no job of yours on that node |
+
+## Inputs and parameters
+
+**Reference section — look things up here, don't read it through.** Every input and every setting, what it controls, which step reads it, and the original tool argument it maps to. The console's info panel shows the same definitions next to the values currently in use, so you rarely need this page while working.
+
+### Input data types
+
+- **FASTQ (local)** (gzipped FASTQ (`.fastq.gz`), one file per sample, absolute path on the cluster): The preferred source. Step `01_fetch` length-filters it with seqkit into `results/<analysis>/data/<sample_id>.fastq.gz`; the original file is never modified. A file outside `$HOME` and the repo needs `--bind <dir>` in `apptainer-args` (local FASTQ directories are bound automatically).
+- **SRA run accession** (`SRR` / `ERR` / `DRR` followed by digits): The alternative source, for public data. Step `01_fetch` checks the read count against ENA, downloads the `.sra` file, converts it with `fasterq-dump` and keeps it in the shared cache `data/raw/<run>.fastq.gz`, so later analyses reuse it.
+- **sample_id** (letters, digits, underscore): The row key. It names every file, log and SLURM job of the sample, so it must be unique within the sheet.
+- **condition** (free text): A human-readable label for the treatment, e.g. `rnp_dsDNA_donor`. Carried into `summary.tsv` and the KI % matrix; not interpreted by the tools.
+- **control_tier** (`treated` / `no_donor` / `mock`): What the sample was given, which is what makes it a control or not. At least one `mock` or `no_donor` row is required. CRISPRLungo's `--control` is the first `mock`, and failing that the first `no_donor` — a fixed rule, so the choice never depends on row order.
+
+| Tier | Nuclease | Donor | What it measures | Expected KI % |
+|---|---|---|---|---|
+| `mock` | ✗ | ✗ | the sequencing and mapping error floor | ≈ 0 |
+| `no_donor` | ✓ | ✗ | knock-ins called where knock-in is impossible — the false-positive floor | ≈ 0 |
+| `treated` | ✓ | ✓ | the knock-in itself | the measurement |
+
+  Both tiers matter and they are not interchangeable. `mock` is the cleaner background for CRISPRLungo's error model, because no allele in it was cut. `no_donor` is the one that bounds the knock-in claim: it is the only sample where a `HDR-*` call is certainly wrong, so its KI % is the floor the treated samples must clear. A sheet with only `treated` rows is refused.
+- **Wet-lab and sequencing fields** (free text, dates, numbers): Provenance only. Stored in `configs/samples/<sample_id>.json` and copied into `results/<analysis>/meta/`; never read by the tools.
+- **References (built by `02_refs`)** (`TRAC_WT.fa`, `TRAC_KI.fa`, `CAR_insert.fa`, `alpine/ref.fa`, `alpine/config.tsv`, `design.json`): Control (unedited) and knock-in amplicons, the inserted gene, guide, primers and homology arms. Built from a genome window (`refs.region`) and the donor template table of the paper (`refs.pmc`). The files are named after the example locus (`TRAC`, `CAR`); their roles are the same for any target.
+  `design.json`'s `deleted_wt_bp_between_arms` is **−4** for the example design: the published homology arms overlap by 4 bp rather than deleting WT sequence between them, so the KI allele is 4 bp longer than WT + insert. That is a property of the paper's template, not a bug in `build_refs.py` — do not "correct" the negative value.
+
+![inputs](docs/img/01_inputs.svg)
+
+### Variables (`configs/param_configs.yaml`)
+
+Each variable is listed with what it controls, the step that reads it, and the original argument it maps to in the tool. They are grouped the way the console groups them: required first, then the optional ones and the tool internals, which the console keeps collapsed.
+
+#### Required
+
+Without these `02_refs` cannot build the references, and the console refuses to save the design.
+
+- `refs.region`: hg38 genomic window (chromosome:start..end:strand) that contains the amplicon. Downloaded once from Ensembl and pinned by sha256.
+  - step: `02_refs`
+  - original argument: Ensembl REST `/sequence/region/human/<region>`
+- `build_refs.nuclease`: Nuclease used, chosen in the console's design panel. It fills `cut_offset_from_guide_5p` and `lungo.cleavage_pos` with the pair that matches it (AsCas12a 18/17, SpCas9 17/16, ARCUS 11/10) and is stored so the choice survives a reload. No tool reads it.
+  - step: `console only`
+  - original argument: none
+- `build_refs.guide`: crRNA spacer sequence (5'->3'). Locates the cut site in the wild-type amplicon and is passed to CRISPRLungo.
+  - step: `02_refs`, `04_lungo`
+  - original argument: CRISPRlungo positional `<guide>`
+- `build_refs.cut_offset_from_guide_5p`: Distance of the cut from the 5' end of the guide: 17 for SpCas9, 18 for AsCas12a. Wrong values shift the expected integration site.
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+- `lungo.cleavage_pos`: Position of the cut inside the guide as CRISPRLungo counts it; centres the window where edits are scored.
+  - step: `04_lungo`
+  - original argument: CRISPRlungo `--cleavage_pos`
+- `build_refs.primer_f_specific` / `primer_r_specific`: The gene-specific part of each primer, without the adapter tail: the part that actually anneals to the genome. `02_refs` searches the reference window for it, and the two hits set the ends of the WT amplicon. The full oligo would never be found here, because its 5' tail is not genomic sequence.
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+- `build_refs.primer_f_full` / `primer_r_full`: The same two oligos as ordered, 5' adapter tail included, which is what is physically at the ends of every read. ALPINE is given these to recognise a complete amplicon within `primer_check_length` bases of each read end; the gene-specific part alone would sit a tail-length further in and complete reads would be rejected. When the primers carry no tail the two pairs are the same sequence. See [Why two primer pairs](#why-two-primer-pairs).
+  - step: `02_refs`, `03_alpine`
+  - original argument: ALPINE `primer_1` / `primer_2` in job.yaml
+- `build_refs.donor_ki_fasta`: A knock-in allele as a FASTA file, WT-flanked: the homology arms and the insert are derived from where it differs from the WT amplicon. The alternative to `templates_xlsx`; give one or the other, never both.
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+- `build_refs.templates_xlsx`: Supplementary spreadsheet containing the donor templates (full sequence and homology arms).
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+- `build_refs.template_title`: Exact title of the row in the supplementary table to use as donor; selects the knock-in construct.
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+- `build_refs.flank_bp`: With a donor FASTA, how much WT sequence either side of the insert to record as a homology arm. Ignored with a supplementary table, which publishes its own arms.
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+
+#### Optional
+
+Defaults that work for the examples, plus the two fields only public data needs. A run with local FASTQ samples and a donor FASTA needs none of them.
+
+- `fetch.bioproject`: NCBI/ENA BioProject that the SRA runs belong to. Only used to download the run table from ENA, so that every downloaded run can be checked against its expected read count. Not needed when all samples are local FASTQ files.
+  - step: `01_fetch` (jobs ena, download)
+  - original argument: ENA filereport `accession=`
+- `refs.pmc`: Europe PMC id of the paper whose supplementary table holds the HDR donor templates. Downloaded once and pinned by sha256.
+  - step: `02_refs`
+  - original argument: Europe PMC `supplementaryFiles`
+- `fetch.min_len`: Shortest read kept, in bp. Reads below this length are dropped before any tool sees them (primer dimers, broken reads). Nothing is subsampled: all passing reads are used. Note that 3500 sits below the 4358 bp WT amplicon, so any allele with a deletion larger than ~860 bp is removed before either tool sees it — a silent floor on large-deletion detection. It applies to both tools equally, so the KI % comparison is unaffected.
+  - step: `01_fetch` (job filter)
+  - original argument: `seqkit seq -m`
+- `fetch.max_len`: Longest read kept, in bp. Removes concatemers and chimeric reads much longer than the knock-in amplicon.
+  - step: `01_fetch` (job filter)
+  - original argument: `seqkit seq -M`
+- `shared.ki_min_insert_frac`: Minimum fraction of the inserted gene that a read must cover to be counted as a knock-in. 0.8 means at least 80% of the insert must be present; shorter, truncated integrations are not counted. The same threshold is applied to both tools so their percentages are comparable.
+  - step: `03_alpine`, `05_summary`
+  - original argument: ALPINE `truncated_cutoff` in job.yaml; for CRISPRLungo it is applied afterwards by `summarize.py` on the merged insert blocks
+- `lungo.window`: Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise. **Do not lower this below 21 for the example design:** the donor's PAM-blocking mutations sit at cut −3..0 and at **+20 bp**, so 25 clears the furthest one by only 4 bp. At the upstream default of 5 that mutation falls outside the window and CRISPRLungo warns.
+  - step: `04_lungo`
+  - original argument: CRISPRlungo `--window`
+
+#### Advanced
+
+Tool internals. Change them with the tool's own manual open (`docs/manuals/`).
+
+- `alpine.primer_check_length`: Number of bases at each read end in which ALPINE looks for the primers. Reads whose primers are not found there are discarded as incomplete amplicons.
+  - step: `03_alpine`
+  - original argument: ALPINE `primer_check_length` in job.yaml
+- `alpine.data_type`: Read technology. `nanopore` tells ALPINE to expect ONT errors and also makes the pipeline patch ALPINE's hard-coded `minimap2 -ax map-hifi` into `map-ont`.
+  - step: `03_alpine`
+  - original argument: ALPINE `data_type` in job.yaml
+
+#### Filled in for you
+
+Derived from the reference window or learned from earlier runs; never typed by hand.
+
+- `build_refs.genomic_fasta`: Local path of the cached hg38 window downloaded from `refs.region`.
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+- `build_refs.genomic_start_1based`: 1-based genomic coordinate of the first base of `genomic_fasta`; converts positions in the window back to hg38 coordinates.
+  - step: `02_refs`
+  - original argument: `build_refs.py --yaml-in`
+- `threads`, `mem_mb`, `runtime`: CPU, memory (MB) and time (minutes) of each job. CPUs start from the per-tool defaults (`RES` in `src/pipeline.py`) and are lowered to what earlier runs actually used; memory and time are learned from earlier runs (see [SLURM use](#slurm-use-agency-profiles-a-ceiling-learned-memory)).
+  - step: `every step`
+  - original argument: `sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin
+
+Each analysis freezes its own copy of these values in `results/<analysis>/inputs/params.yaml`.
+
+### Why two primer pairs
+
+Both pairs hold the same two oligos, but they are used for two unrelated jobs, and only one of the pairs is
+required.
+
+| Field | What it holds | Used for | Required? |
+|---|---|---|---|
+| `primer_f_specific` / `primer_r_specific` | the gene-specific part only | KNOCKIN-VAL matches it in the hg38 window to set the amplicon's ends (`src/design.py`, `amplicon()`) | **yes** — `02_refs` stops with *primers not found in genomic window* |
+| `primer_f_full` / `primer_r_full` | the oligo as ordered, 5' tail included | ALPINE's read-completeness filter, as `primer_1` / `primer_2` | no |
+
+Only the gene-specific part exists in the genome, so it is the only thing that can anchor the amplicon in the
+reference window; the tail is synthetic. ALPINE, by contrast, looks at the reads, which carry the whole oligo.
+
+ALPINE's filter is lenient and optional. It keeps a read if **any 10 bp** of the primer occurs within
+`alpine.primer_check_length` bases of the matching end, and it tests the reverse complement too, so both primers
+are given 5'→3' as ordered. Give neither and ALPINE skips the completeness check entirely, keeping every read
+that passes its quality filter; give only one and it checks that end and skips the other. Each primer is searched in both
+orientations, but only at the end that pairs with the other primer, so both go in as ordered: reverse-
+complementing `primer_r_full` yourself inverts both tests and empties the sample. A full primer shorter than
+10 bp also discards every read, because the match window is 10 bp wide — the console refuses one.
+
+Because the test is a 10 bp window, feeding ALPINE the gene-specific pair instead of the full pair would **not**
+break classification: in the nitulescu design the gene-specific part ends 43-44 bp into the read, inside even
+ALPINE's default window of 50. The reason to prefer the full oligo is simply that it is the stricter and more
+honest completeness test. `alpine.primer_check_length` is set to 150 rather than the upstream default of 50
+because an ONT read can carry residual adapter and barcode ahead of the primer, not because the primers are long.
+
+In the **nitulescu** example the tails are 22 bp (`TTTCTGTTGGTGCTGATATTGC` forward, `ACTTGCCTGTCGCTCTATCTTC`
+reverse), so each full primer is tail + gene-specific part. In the **arcus** example the primers were untailed
+and the two pairs are identical, which is the normal case for plain PCR primers.
+
+The console checks the relation as you type: it reports the tail length when the full primer ends with the
+gene-specific one, says so when the two are identical, warns when neither holds, and warns when only one of the
+two full primers is filled in.
+
+### Original command lines
+
+| Step | Command |
+|---|---|
+| `01_fetch` | `seqkit seq -j <threads> -g -G - -m <min_len> -M <max_len> <raw.fastq.gz> -o data/<sample_id>.fastq.gz` |
+| `03_alpine` | `cwltool --no-container aav_per_sample_workflow.cwl job.yaml` (fastqfile, reffile, config, primer_1/2 (omitted when empty), primer_check_length, data_type, truncated_cutoff, five/three_prime_HA_seq, variant_window) |
+| `04_lungo` | `CRISPRlungo TRAC_WT.fa <sample.fastq.gz> <out> <guide> --cleavage_pos <cp> --window <w> --control <control.fastq.gz> --induced_sequence_path TRAC_KI.fa --integration_file CAR_insert.fa -t <threads>` |
+| `05_summary` | `python3 src/summarize.py --analysis-dir results/<analysis>` — writes `ki_reads`/`ki_pct`, `partial_reads`/`partial_pct` and the per-class `notes` |
 
 ## SLURM use: agency profiles, a ceiling, learned memory
 
@@ -289,9 +392,9 @@ cat results/<name>/summary_matrix.tsv           # KI % per tool x sample
 | ALPINE KI | `HDR-<name>` class: insert ≥ `ki_min_insert_frac` **and** both homology arms aligned |
 | CRISPRLungo KI | integration blocks matching the insert, **merged**, cover ≥ `ki_min_insert_frac` of the insert |
 | `metric` column | the definition used for each row of `summary.tsv` |
-| denominator | length-passing reads (`reads_used`), not all reads |
-| control caveat | the CRISPRLungo control is ≈ 0 by construction; use `NoDonor` as its negative |
-| ALPINE vs CRISPRLungo | ALPINE counts precise HDR only and is expected to be lower; see [docs/manuals/ALPINE.md](docs/manuals/ALPINE.md) |
+| denominator | **classified** reads (`reads_used`), not all reads and not length-passing reads (`reads_in`) |
+| control caveat | the control sample is run **without** `--control` (it cannot be its own background), so its class spectrum is real; its KI % is still ≈ 0 by construction |
+| ALPINE vs CRISPRLungo | ALPINE counts precise HDR only and is expected to be lower; see [Manual.md](Manual.md) section 12 |
 
 ### Reads that are not knock-in are not thrown away
 
@@ -313,7 +416,7 @@ A read that is neither a clean knock-in nor unedited is still counted and report
 | Other | anything not matched above | anything not matched above |
 | Unclassified **(excluded from `reads_used`)** | `Unclassified` | — |
 
-**Why `Unclassified` is excluded.** ALPINE keeps the reads it cannot place as an `Unclassified` class — mostly reads failing its primer, quality or full-length checks. CRISPRLungo has no equivalent: reads it cannot classify never reach its table at all. Counting ALPINE's in the denominator while CRISPRLungo's are already gone would make the two tools' percentages answer different questions, so they are excluded from `reads_used` and reported in their own `unclassified_reads` column. They are not deleted: the class rows stay in `summary_classes.tsv`, the count is in `unclassified_reads`, and the Results tab can chart them (**Include unclassified reads**) or show them as the drop from length-passing reads to classified reads (**Read filtering panel**).
+**Why `Unclassified` is excluded.** ALPINE keeps the reads it cannot place as an `Unclassified` class: per its own docs, unmapped reads, reads with complex alignment patterns, and reads not spanning the cleavage site. (Its primer and quality filters run *before* alignment, so their rejects never reach the class table at all; they show up only as the gap between `reads_in` and `reads_used`, which is the real asymmetry against CRISPRLungo — that tool applies no primer filter, and removes low-quality and chimeric reads in its own preprocessing instead.) CRISPRLungo has no equivalent: reads it cannot classify never reach its table at all. Counting ALPINE's in the denominator while CRISPRLungo's are already gone would make the two tools' percentages answer different questions, so they are excluded from `reads_used` and reported in their own `unclassified_reads` column. They are not deleted: the class rows stay in `summary_classes.tsv`, the count is in `unclassified_reads`, and the Results tab can chart them (**Include unclassified reads**) or show them as the drop from length-passing reads to classified reads (**Read filtering panel**).
 
 Only the literal `Unclassified` class is excluded. An unrecognised class goes to `Other`, which stays in `reads_used` — an unexpected outcome must never silently inflate the knock-in percentage.
 

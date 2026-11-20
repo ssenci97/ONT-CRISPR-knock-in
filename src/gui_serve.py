@@ -443,7 +443,8 @@ def check_design(v):
     c = merge(v)
     for k, f in fs.items():
         sec, key = k.split(".", 1)
-        if f.get("required") and not str(c.get(sec, {}).get(key) or "").strip(): errs.append(f"{f['label']}: required")
+        cur = c.get(sec, {}).get(key)
+        if f.get("required") and str("" if cur is None else cur).strip() == "": errs.append(f"{f['label']}: required")
     r = window_of(c.get("refs", {}).get("region"))
     if not r:
         if not any(e.startswith("hg38 window:") for e in errs): errs.append("hg38 window: use the form 14:22540000..22560000:1")
@@ -454,6 +455,9 @@ def check_design(v):
     ki = c.get("shared", {}).get("ki_min_insert_frac")
     if ki is not None and not 0 < ki <= 1 and not any(e.startswith("Minimum insert fraction") for e in errs): errs.append("minimum insert fraction: give a number above 0 and at most 1")
     if bool(br.get("donor_ki_fasta")) == bool(br.get("templates_xlsx")): errs.append("donor: give either a donor FASTA or a supplementary table, not both and not neither")
+    for k in ("primer_f_full", "primer_r_full"):
+        v = str(br.get(k) or "")
+        if v and len(v) < 10: errs.append(f"{fs['build_refs.' + k]['label']}: must be at least 10 bp, or ALPINE throws away every read")
     bp = fe.get("bioproject")
     if bp and not pipeline.BP_RE.match(str(bp)): errs.append(f"BioProject: {bp!r} is not an accession")
     return errs
@@ -540,12 +544,23 @@ def detect(d):
     say("refs.region", "ok" if ok_head else "warn", f"{len(g):,} bp cached" if ok_head else f"the cached file says {head!r}, which is not this window: delete it and fetch it again")
     pf, pr, wt = str(br.get("primer_f_specific") or ""), str(br.get("primer_r_specific") or ""), None
     for k, seq, rev in (("build_refs.primer_f_specific", pf, False), ("build_refs.primer_r_specific", pr, True)):
-        if not seq: say(k, "err", "required: it sets one end of the amplicon"); continue
+        if not seq: say(k, "err", "needed: it sets one end of your amplicon"); continue
         if not SEQ_RE.match(seq): say(k, "err", "only A, C, G and T are allowed"); continue
         i, mm = hit(g, seq, rev)
         if i is None: say(k, "err", "could not be searched in this window")
         elif mm: say(k, "err", f"not found; the closest match is at {i:,} with {mm} mismatch(es)", pos=i, mismatches=mm)
         else: say(k, "ok", f"found at {i:,} (hg38 {r['start'] + i:,})" + (", as reverse complement" if rev else ""), pos=i, mismatches=0)
+    for kf, spec in (("primer_f_full", pf), ("primer_r_full", pr)):
+        k, full = f"build_refs.{kf}", str(br.get(kf) or "").upper()
+        if not full: say(k, "unknown", "empty, which is fine: ALPINE just will not use a primer to check that reads are complete")
+        elif not SEQ_RE.match(full): say(k, "err", "only A, C, G and T are allowed")
+        elif len(full) < 10: say(k, "err", "too short: ALPINE matches 10 bp at a time, so a primer under 10 bp would throw away every read")
+        elif not spec: say(k, "unknown", "fill in the genome-matching primer above and this one gets checked against it")
+        elif full == spec.upper(): say(k, "ok", "same as the genome-matching primer, so this primer has no tail")
+        elif full.endswith(spec.upper()): say(k, "ok", f"the genome-matching primer plus a {len(full) - len(spec)} bp tail")
+        else: say(k, "warn", "this should end with the genome-matching primer above: the two fields are the same primer, with and without its tail")
+    fl, rl = str(br.get("primer_f_full") or ""), str(br.get("primer_r_full") or "")
+    if bool(fl) != bool(rl): out["warnings"].append("only one as-ordered primer is filled in: ALPINE will check that end of the read and skip the other")
     if all(out["fields"].get(k, {}).get("state") == "ok" for k in ("build_refs.primer_f_specific", "build_refs.primer_r_specific")):
         fi, ri = g.find(pf), g.find(design.rc(pr))
         if ri <= fi: out["errors"].append("the reverse primer lies before the forward primer in the window")

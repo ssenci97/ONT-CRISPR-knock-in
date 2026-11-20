@@ -92,11 +92,12 @@ def plan(name, root=ROOT):
             [f"{a}/data/{s}.fastq.gz", f"{a}/data/stats/{s}.tsv"], f"{a}/logs/01_fetch/filter_{s}.log", [] if local[s] else [f"download_{r['srr']}"], binds=outside(local[s], root) if local[s] else [], inputs=[raw])
     add("refs", STEPS[1], "refs", "refs", "refs.sh", [], [f"{a}/refs/{f}" for f in REF_FILES], f"{a}/logs/02_refs/refs.log")
     for s in samples:
-        add(f"alpine_{s}", STEPS[2], f"alpine {s}", "alpine", "alpine.sh", [s, f"{a}/data/{s}.fastq.gz", f"{a}/ALPINE/{s}", P["alpine"]["primer_check_length"], P["alpine"]["data_type"], frac, "{cpus}", "{mem_mb}"],
+        add(f"alpine_{s}", STEPS[2], f"alpine {s}", "alpine", "alpine.sh", [s, f"{a}/data/{s}.fastq.gz", f"{a}/ALPINE/{s}", P["alpine"]["primer_check_length"], P["alpine"]["data_type"], frac, P["alpine"]["variant_window"], "{cpus}", "{mem_mb}"],
             [f"{a}/ALPINE/{s}/{s}_read_classification.txt"], f"{a}/logs/03_alpine/{s}.log", [f"filter_{s}", "refs"], inputs=[f"{a}/data/{s}.fastq.gz"] + refs)
     for s in samples:
-        add(f"lungo_{s}", STEPS[3], f"lungo {s}", "lungo", "lungo.sh", [s, f"{a}/data/{s}.fastq.gz", f"{a}/data/{ctrl}.fastq.gz", ctrl, f"{a}/CRISPRLungo", P["lungo"]["cleavage_pos"], P["lungo"]["window"], "{cpus}"],
-            [f"{a}/CRISPRLungo/{s}/results/read_classification.txt"], f"{a}/logs/04_lungo/{s}.log", [f"filter_{s}", f"filter_{ctrl}", "refs"], inputs=[f"{a}/data/{s}.fastq.gz", f"{a}/data/{ctrl}.fastq.gz"] + refs)
+        cp, cid = ("none", "self (omitted)") if s == ctrl else (f"{a}/data/{ctrl}.fastq.gz", ctrl)
+        add(f"lungo_{s}", STEPS[3], f"lungo {s}", "lungo", "lungo.sh", [s, f"{a}/data/{s}.fastq.gz", cp, cid, f"{a}/CRISPRLungo", P["lungo"]["cleavage_pos"], P["lungo"]["window"], "{cpus}"],
+            [f"{a}/CRISPRLungo/{s}/results/read_classification.txt"], f"{a}/logs/04_lungo/{s}.log", sorted({f"filter_{s}", f"filter_{ctrl}", "refs"}), inputs=sorted({f"{a}/data/{s}.fastq.gz", f"{a}/data/{ctrl}.fastq.gz"}) + refs)
     deps = [j["key"] for st in ("alpine", "lungo", "filter") for j in jobs if j["key"].startswith(st + "_")] + ["refs"]
     add("summary", STEPS[4], "summary", "summary", "summary.sh", [], [f"{a}/summary.tsv", f"{a}/summary_matrix.tsv", f"{a}/summary_classes.tsv"], f"{a}/logs/05_summary/summary.log", deps, inputs=[o for j in jobs if j["key"] in deps for o in j["outputs"]])
     check_paths(jobs, name, root)

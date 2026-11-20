@@ -22,6 +22,7 @@ build_refs:
 alpine:
   primer_check_length: 150
   data_type: nanopore
+  variant_window: 25
 lungo:
   cleavage_pos: 17
   window: 25

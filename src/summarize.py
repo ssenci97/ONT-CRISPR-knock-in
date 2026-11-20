@@ -55,7 +55,7 @@ def alpine(sample_id, d, p):
 
 def union_len(spans):
     merged = []
-    for a, b in sorted(spans):
+    for a, b in sorted((min(a, b), max(a, b)) for a, b in spans):
         if merged and a <= merged[-1][1] + 1: merged[-1][1] = max(merged[-1][1], b)
         else: merged.append([a, b])
     return sum(b - a + 1 for a, b in merged)

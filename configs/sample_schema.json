@@ -28,7 +28,7 @@
     },
     {
      "id": "control_tier",
-     "label": "Control tier",
+     "label": "Sample type",
      "type": "select",
      "options": [
       "treated",
@@ -37,9 +37,10 @@
      ],
      "default": "treated",
      "required": true,
-     "help": "treated = nuclease + donor; no_donor = nuclease, no donor; mock = neither. CRISPRLungo's control is the first mock, else the first no_donor."
+     "help": "treated = nuclease + donor \u00b7 no donor = nuclease only \u00b7 mock = neither"
     }
-   ]
+   ],
+   "tier": "required"
   },
   {
    "name": "Reads",
@@ -47,18 +48,19 @@
    "fields": [
     {
      "id": "fastq_path",
-     "label": "FASTQ path on the cluster",
+     "label": "Read file on the cluster",
      "type": "text",
      "help": "/orfeo/.../sample.fastq.gz"
     },
     {
      "id": "srr",
-     "label": "SRA run accession",
+     "label": "Public run accession (SRA)",
      "type": "text",
      "pattern": "^(SRR|ERR|DRR)[0-9]+$",
      "help": "SRR33387467"
     }
-   ]
+   ],
+   "tier": "required"
   },
   {
    "name": "Sequencing",
@@ -86,7 +88,7 @@
      "help": "dorado sup v5.0.0"
     }
    ],
-   "optional": true
+   "tier": "optional"
   },
   {
    "name": "Wet lab",
@@ -124,7 +126,7 @@
       "other"
      ],
      "default": "AsCas12a",
-     "help": "provenance only; the nuclease the pipeline uses is set in the experiment design"
+     "help": "Recorded for your records only. The nuclease the analysis uses is set in Experiment design."
     },
     {
      "id": "guide_name",
@@ -168,43 +170,30 @@
      "type": "textarea"
     }
    ],
-   "optional": true
+   "tier": "optional"
   }
  ],
  "design": [
   {
-   "name": "Experiment",
+   "name": "Genome region",
+   "tier": "required",
    "fields": [
     {
      "key": "refs.region",
-     "label": "hg38 window",
+     "label": "Genome region (hg38)",
      "type": "text",
      "detect": true,
      "required": true,
      "pattern": "^[A-Za-z0-9_.]+:[0-9]+\\.\\.[0-9]+:(1|-1)$",
      "help": "14:22540000..22560000:1",
-     "note": "Ensembl REST region. Changing it re-derives the cached FASTA name and start coordinate."
-    },
-    {
-     "key": "fetch.bioproject",
-     "label": "BioProject",
-     "type": "text",
-     "pattern": "^PRJ[A-Z]{2}[0-9]+$",
-     "help": "PRJNA1257358",
-     "note": "Only used to check downloaded SRA runs against the ENA run table. Not needed when every sample is a local FASTQ."
-    },
-    {
-     "key": "refs.pmc",
-     "label": "Europe PMC id",
-     "type": "text",
-     "pattern": "^PMC[0-9]+$",
-     "help": "PMC12166421",
-     "note": "Paper whose supplementary files hold the donor template table."
+     "note": "The stretch of chromosome your amplicon sits in. Click Fetch reference window if it is not downloaded yet.",
+     "more": "Written as chromosome:start..end:strand and fetched from Ensembl. Changing it re-derives the cached FASTA name and the start coordinate, so those two never drift from the region."
     }
    ]
   },
   {
    "name": "Nuclease and guide",
+   "tier": "required",
    "fields": [
     {
      "key": "build_refs.nuclease",
@@ -231,7 +220,7 @@
        "lungo.cleavage_pos": 10
       }
      },
-     "note": "Fills the two cut positions below. Not read by any tool."
+     "note": "Fills the two cut positions below. No tool reads this."
     },
     {
      "key": "build_refs.guide",
@@ -241,172 +230,223 @@
      "detect": true,
      "required": true,
      "help": "GAGTCTCTCAGCTGGTACACGGC",
-     "note": "Located in the WT amplicon on either strand; its 5' end anchors the cut."
+     "note": "The spacer sequence. The console finds it in the amplicon, on either strand, and marks the cut."
     },
     {
      "key": "build_refs.cut_offset_from_guide_5p",
-     "label": "Cut offset from guide 5'",
+     "label": "Cut position, counted from the guide start",
      "type": "number",
      "min": 0,
      "max": 40,
      "detect": true,
-     "note": "Distance of the cut from the guide's 5' end. Always one more than CRISPRLungo's cleavage_pos."
+     "required": true,
+     "note": "How many bases from the guide's 5' end the cut falls. The Nuclease selector fills it.",
+     "more": "SpCas9 17, AsCas12a 18, ARCUS 11. It must always be exactly one more than the CRISPRLungo value below, which counts the same cut a different way; the Nuclease selector keeps the pair consistent for you."
     },
     {
      "key": "lungo.cleavage_pos",
-     "label": "CRISPRLungo cleavage_pos",
+     "label": "Same cut position, as CRISPRLungo counts it",
      "type": "number",
      "min": 0,
      "max": 40,
      "detect": true,
-     "note": "0-based index in the guide of the last base 5' of the cut."
+     "required": true,
+     "note": "Always one less than the value above. The Nuclease selector fills it.",
+     "more": "CRISPRLungo takes a 0-based index into the guide for the last base before the cut, so it is always one less than the offset above. Verified against the tool's source: it is applied from the spacer's own 5' end and works on either strand."
     }
-   ]
+   ],
+   "note": "Pick your nuclease and the two cut positions fill themselves in."
   },
   {
    "name": "Primers",
+   "tier": "required",
+   "note": "Your two primers, entered twice: once as the part that matches the genome, once as you ordered them.",
    "fields": [
     {
      "key": "build_refs.primer_f_specific",
-     "label": "Forward primer, gene-specific",
+     "label": "Forward primer (genome-matching part)",
      "type": "text",
      "seq": true,
      "detect": true,
      "required": true,
      "help": "TTCAATCACTGCTGTGTCCCT",
-     "note": "Must be found exactly in the window: it sets the amplicon's left end."
+     "note": "The part of the primer that matches the genome, without any tail. Sets the amplicon's left end."
     },
     {
      "key": "build_refs.primer_r_specific",
-     "label": "Reverse primer, gene-specific",
+     "label": "Reverse primer (genome-matching part)",
      "type": "text",
      "seq": true,
      "detect": true,
      "required": true,
      "help": "TCCCACCCCAGACCTCCTAGTT",
-     "note": "Searched as its reverse complement; it sets the amplicon's right end."
+     "note": "The part that matches the genome. Sets the amplicon's right end."
     },
     {
      "key": "build_refs.primer_f_full",
-     "label": "Forward primer, full",
+     "label": "Forward primer as ordered",
      "type": "text",
      "seq": true,
-     "help": "with adapters",
-     "note": "Passed to ALPINE as primer_1, adapters included."
+     "help": "with the 5' tail, if any",
+     "note": "Optional. Include the 5' tail if your primer has one.",
+     "more": "Only ALPINE uses this, to check that a read is a complete amplicon: it keeps a read if any 10 bp of the primer appears near the matching end. Leave both of these empty and that check is simply skipped, which is safe. Must be at least 10 bp."
     },
     {
      "key": "build_refs.primer_r_full",
-     "label": "Reverse primer, full",
+     "label": "Reverse primer as ordered",
      "type": "text",
      "seq": true,
-     "help": "with adapters",
-     "note": "Passed to ALPINE as primer_2, adapters included."
+     "help": "with the 5' tail, if any",
+     "note": "Optional. Enter it as ordered, not reverse-complemented.",
+     "more": "ALPINE reverse-complements it itself, so entering it already reverse-complemented would make every read fail. Fill both of these or neither."
     }
-   ]
+   ],
+   "more_label": "Why twice?",
+   "more": "The two entries do different jobs. The genome-matching part is used to find your amplicon in the reference genome, and it is required - a primer with a synthetic 5' tail would never be found there. The as-ordered version is what is physically on your reads, and it is passed to ALPINE as an optional check that a read is a complete amplicon. CRISPRLungo never uses a primer at all. If your primers have no tail, the two entries are simply the same sequence."
   },
   {
    "name": "Donor",
+   "tier": "required",
    "donor": true,
+   "note": "Where your knock-in sequence comes from. Pick one source - a FASTA file, or a row of a paper's table.",
    "fields": [
     {
      "key": "build_refs.donor_ki_fasta",
-     "label": "Donor KI allele (FASTA)",
+     "label": "Donor: knock-in allele (FASTA file)",
      "type": "text",
      "path": "fa",
-     "detect": true,
      "mode": "fasta",
+     "detect": true,
      "help": "configs/examples/example_arcus/donor_ki.fa",
-     "note": "A WT-flanked knock-in allele: the homology arms and the insert are derived from where it differs from the WT amplicon."
+     "note": "A FASTA of the edited allele with wild-type sequence on both sides.",
+     "more": "The homology arms and the inserted sequence are worked out from wherever this differs from the wild-type amplicon."
     },
     {
      "key": "build_refs.templates_xlsx",
-     "label": "Supplementary table (xlsx)",
+     "label": "Donor: supplementary table (xlsx file)",
      "type": "text",
      "path": "xlsx",
-     "detect": true,
      "mode": "table",
+     "detect": true,
      "help": "data/raw_refs/supp/mmc2.xlsx",
-     "note": "Sheet 'Table S1' with Full Sequence, Left Homology Arm and Right Homology Arm rows."
+     "note": "A spreadsheet from the paper, with a sheet named 'Table S1'.",
+     "more": "The sheet must have Full Sequence, Left Homology Arm and Right Homology Arm rows."
     },
     {
      "key": "build_refs.template_title",
-     "label": "Template title",
+     "label": "Which row of that table",
      "type": "text",
-     "detect": true,
      "mode": "table",
+     "detect": true,
      "help": "TRAC CD19-CAR HDR template for editing with AsCas12a",
-     "note": "Exact title of the row to use as the donor."
+     "note": "The exact title of the donor row to use."
     },
     {
      "key": "build_refs.flank_bp",
-     "label": "Arm length from donor (bp)",
+     "label": "Homology arm length to record (bp)",
      "type": "number",
      "min": 0,
      "max": 5000,
      "mode": "fasta",
-     "note": "How much WT either side of the insert to record as a homology arm. Only used with a donor FASTA."
+     "note": "How much wild-type sequence each side of the insert counts as a homology arm. Only used with a donor FASTA."
     }
    ]
   },
   {
-   "name": "Scoring and reads",
+   "name": "Public data (only if you use it)",
+   "tier": "optional",
+   "note": "Leave both empty when your reads are files on the cluster and your donor is a FASTA.",
+   "fields": [
+    {
+     "key": "fetch.bioproject",
+     "label": "BioProject",
+     "type": "text",
+     "pattern": "^PRJ[A-Z]{2}[0-9]+$",
+     "help": "PRJNA1257358",
+     "note": "Only needed if your samples are public SRA runs."
+    },
+    {
+     "key": "refs.pmc",
+     "label": "Europe PMC id",
+     "type": "text",
+     "pattern": "^PMC[0-9]+$",
+     "help": "PMC12166421",
+     "note": "Only needed if your donor comes from a paper's supplementary table."
+    }
+   ]
+  },
+  {
+   "name": "Read lengths and scoring",
+   "tier": "optional",
+   "note": "These have sensible defaults. The console suggests read lengths once it knows your amplicon.",
    "fields": [
     {
      "key": "fetch.min_len",
-     "label": "Shortest read kept (bp)",
+     "label": "Shortest read to keep (bp)",
      "type": "number",
      "min": 0,
      "suggest": true,
-     "note": "Reads below this are dropped before any tool sees them. Nothing is subsampled."
+     "note": "Shorter reads are dropped before analysis. Nothing is subsampled."
     },
     {
      "key": "fetch.max_len",
-     "label": "Longest read kept (bp)",
+     "label": "Longest read to keep (bp)",
      "type": "number",
      "min": 0,
      "suggest": true,
-     "note": "Removes concatemers and chimeras much longer than the knock-in amplicon."
+     "note": "Removes concatemers and chimeras far longer than your amplicon."
     },
     {
      "key": "shared.ki_min_insert_frac",
-     "label": "Minimum insert fraction for a knock-in",
+     "label": "How much of the insert a read must cover",
      "type": "number",
-     "step": "0.01",
      "min": 0,
      "max": 1,
-     "note": "Applied to both tools so their percentages answer the same question."
+     "step": "0.01",
+     "note": "0.8 means a read needs at least 80% of the inserted sequence to count as a knock-in.",
+     "more": "The same threshold is given to both tools so their two percentages answer the same question."
     },
     {
      "key": "lungo.window",
-     "label": "CRISPRLungo scoring window (bp)",
+     "label": "Scoring window around the cut (bp) - CRISPRLungo",
      "type": "number",
      "min": 1,
      "max": 1000,
-     "note": "Half-width around the cut in which edits are scored. It must cover every intended mutation, including PAM-blocking changes far from the cut."
+     "note": "Edits further than this from the cut are not counted. Keep it equal to the ALPINE window below.",
+     "more": "A half-width, so 25 means 25 bp either side. It must cover every mutation you intended, including PAM-blocking changes that sit well away from the cut. It also bounds knock-in detection, so lowering it silently lowers the knock-in percentage."
+    },
+    {
+     "key": "alpine.variant_window",
+     "label": "Scoring window around the cut (bp) - ALPINE",
+     "type": "number",
+     "min": 1,
+     "max": 1000,
+     "note": "The same idea for the other tool. Keep the two equal so both score the same span.",
+     "more": "ALPINE's own default is 20. At the exact edge of the window it counts a substitution but not an insertion, so matching it to the CRISPRLungo window removes a boundary case."
     }
    ]
   },
   {
    "name": "Tool internals",
-   "advanced": true,
+   "tier": "advanced",
    "fields": [
     {
      "key": "alpine.primer_check_length",
-     "label": "ALPINE primer_check_length",
+     "label": "Where ALPINE looks for the primer (bp from each read end)",
      "type": "number",
      "min": 1,
      "max": 1000,
-     "note": "Bases at each read end in which ALPINE looks for the primers. 150 here because our primers carry ONT adapters."
+     "note": "150 here, rather than ALPINE's default of 50, because a nanopore read can carry leftover adapter and barcode before the primer."
     },
     {
      "key": "alpine.data_type",
-     "label": "ALPINE data_type",
+     "label": "Sequencing platform",
      "type": "select",
      "options": [
       "nanopore",
       "pacbio-hifi"
      ],
-     "note": "nanopore also makes the pipeline patch ALPINE's hard-coded minimap2 map-hifi preset into map-ont."
+     "note": "Choosing nanopore also makes the pipeline switch ALPINE's hard-coded minimap2 preset to map-ont."
     }
    ]
   }
@@ -436,7 +476,7 @@
    {
     "name": "control",
     "format": "tick box (`1` / `0`)",
-    "use": "Marks a negative control. The first ticked sample is passed to CRISPRLungo as `--control`; at least one is required."
+    "use": "Marks a negative control. CRISPRLungo's `--control` is the first `mock` sample, else the first `no_donor` one (`src/analysis.py`, `control_sample`); at least one is required."
    },
    {
     "name": "Wet-lab and sequencing fields",
@@ -452,123 +492,150 @@
   "params": [
    {
     "key": "shared.ki_min_insert_frac",
+    "tier": "optional",
     "meaning": "Minimum fraction of the inserted gene that a read must cover to be counted as a knock-in. 0.8 means at least 80% of the insert must be present; shorter, truncated integrations are not counted. The same threshold is applied to both tools so their percentages are comparable.",
     "used_by": "03_alpine, 05_summary",
     "arg": "ALPINE `truncated_cutoff` in job.yaml; for CRISPRLungo it is applied afterwards by `summarize.py` on the merged insert blocks"
    },
    {
     "key": "fetch.bioproject",
+    "tier": "optional",
     "meaning": "NCBI/ENA BioProject that the SRA runs belong to. Only used to download the run table from ENA, so that every downloaded run can be checked against its expected read count. Not needed when all samples are local FASTQ files.",
     "used_by": "01_fetch (ena, download)",
     "arg": "ENA filereport `accession=`"
    },
    {
     "key": "fetch.min_len",
+    "tier": "optional",
     "meaning": "Shortest read kept, in bp. Reads below this length are dropped before any tool sees them (primer dimers, broken reads). Nothing is subsampled: all passing reads are used.",
     "used_by": "01_fetch (filter)",
     "arg": "`seqkit seq -m`"
    },
    {
     "key": "fetch.max_len",
+    "tier": "optional",
     "meaning": "Longest read kept, in bp. Removes concatemers and chimeric reads much longer than the knock-in amplicon.",
     "used_by": "01_fetch (filter)",
     "arg": "`seqkit seq -M`"
    },
    {
     "key": "refs.region",
+    "tier": "required",
     "meaning": "hg38 genomic window (chromosome:start..end:strand) that contains the amplicon. Downloaded once from Ensembl and pinned by sha256.",
     "used_by": "02_refs",
     "arg": "Ensembl REST `/sequence/region/human/<region>`"
    },
    {
     "key": "refs.pmc",
+    "tier": "optional",
     "meaning": "Europe PMC id of the paper whose supplementary table holds the HDR donor templates. Downloaded once and pinned by sha256.",
     "used_by": "02_refs",
     "arg": "Europe PMC `supplementaryFiles`"
    },
    {
     "key": "build_refs.genomic_fasta",
+    "tier": "derived",
     "meaning": "Local path of the cached hg38 window downloaded from `refs.region`.",
     "used_by": "02_refs",
     "arg": "`build_refs.py --yaml-in`"
    },
    {
     "key": "build_refs.genomic_start_1based",
+    "tier": "derived",
     "meaning": "1-based genomic coordinate of the first base of `genomic_fasta`; converts positions in the window back to hg38 coordinates.",
     "used_by": "02_refs",
     "arg": "`build_refs.py --yaml-in`"
    },
    {
     "key": "build_refs.templates_xlsx",
+    "tier": "required",
     "meaning": "Supplementary spreadsheet containing the donor templates (full sequence and homology arms).",
     "used_by": "02_refs",
     "arg": "`build_refs.py --yaml-in`"
    },
    {
     "key": "build_refs.template_title",
+    "tier": "required",
     "meaning": "Exact title of the row in the supplementary table to use as donor; selects the knock-in construct.",
     "used_by": "02_refs",
     "arg": "`build_refs.py --yaml-in`"
    },
    {
     "key": "build_refs.nuclease",
+    "tier": "required",
     "meaning": "Nuclease used, chosen in the console's design panel. It fills cut_offset_from_guide_5p and lungo.cleavage_pos with the pair that matches it (AsCas12a 18/17, SpCas9 17/16, ARCUS 11/10) and is stored so the choice survives a reload. No tool reads it.",
     "used_by": "console only",
     "arg": "none"
    },
    {
     "key": "build_refs.guide",
+    "tier": "required",
     "meaning": "crRNA spacer sequence (5'->3'). Locates the cut site in the wild-type amplicon and is passed to CRISPRLungo.",
     "used_by": "02_refs, 04_lungo",
     "arg": "CRISPRlungo positional `<guide>`"
    },
    {
     "key": "build_refs.cut_offset_from_guide_5p",
+    "tier": "required",
     "meaning": "Distance of the cut from the 5' end of the guide: 17 for SpCas9, 18 for AsCas12a. Wrong values shift the expected integration site.",
     "used_by": "02_refs",
     "arg": "`build_refs.py --yaml-in`"
    },
    {
     "key": "build_refs.primer_f_full / primer_r_full",
-    "meaning": "Full PCR primers including adapters; define the amplicon ends that ALPINE searches for in each read.",
+    "tier": "required",
+    "meaning": "The same two oligos as ordered, 5' adapter tail included, which is what is physically at the ends of every read. ALPINE is given these to recognise a complete amplicon within primer_check_length bases of each read end; the gene-specific part alone would sit a tail-length further in and complete reads would be rejected. When the primers carry no tail the two pairs are the same sequence.",
     "used_by": "02_refs, 03_alpine",
     "arg": "ALPINE `primer_1` / `primer_2` in job.yaml"
    },
    {
     "key": "build_refs.primer_f_specific / primer_r_specific",
-    "meaning": "Gene-specific part of the primers only; used to locate the amplicon in the hg38 window.",
+    "tier": "required",
+    "meaning": "The gene-specific part of each primer, without the adapter tail: the part that actually anneals to the genome. 02_refs searches the reference window for it and the two hits set the ends of the WT amplicon. The full oligo would never be found here, because its 5' tail is not genomic sequence.",
     "used_by": "02_refs",
     "arg": "`build_refs.py --yaml-in`"
    },
    {
     "key": "alpine.primer_check_length",
+    "tier": "advanced",
     "meaning": "Number of bases at each read end in which ALPINE looks for the primers. Reads whose primers are not found there are discarded as incomplete amplicons.",
     "used_by": "03_alpine",
     "arg": "ALPINE `primer_check_length` in job.yaml"
    },
    {
     "key": "alpine.data_type",
+    "tier": "advanced",
     "meaning": "Read technology. `nanopore` tells ALPINE to expect ONT errors and also makes the pipeline patch ALPINE's hard-coded `minimap2 -ax map-hifi` into `map-ont`.",
     "used_by": "03_alpine",
     "arg": "ALPINE `data_type` in job.yaml"
    },
    {
     "key": "lungo.cleavage_pos",
+    "tier": "required",
     "meaning": "Position of the cut inside the guide as CRISPRLungo counts it; centres the window where edits are scored.",
     "used_by": "04_lungo",
     "arg": "CRISPRlungo `--cleavage_pos`"
    },
    {
     "key": "lungo.window",
+    "tier": "optional",
     "meaning": "Half-width in bp around the cut in which CRISPRLungo scores indels and integrations. Larger values catch more distal edits but also more sequencing noise.",
     "used_by": "04_lungo",
     "arg": "CRISPRlungo `--window`"
    },
    {
     "key": "threads, mem_mb, runtime",
+    "tier": "derived",
     "meaning": "CPU, memory (MB) and time (minutes) of each job, set in `src/pipeline.py`. `get_best_node` uses them to choose a partition and node with enough free resources when each job is submitted.",
     "used_by": "every step",
     "arg": "`sbatch --cpus-per-task`, `--mem`, `-t`; CRISPRlungo `-t`; ALPINE coresMin/ramMin"
+   },
+   {
+    "key": "alpine.variant_window",
+    "tier": "optional",
+    "meaning": "Half-width in bp around the cut in which ALPINE scores indels and substitutions from the CIGAR. Upstream default 20; set to 25 here to match lungo.window so the two tools score the same span. ALPINE centres it on the midpoint of the WT row of config.tsv, which build_refs.py writes as the cut, so the two windows are concentric. Note the bound is inclusive for substitutions but strict for insertions.",
+    "used_by": "03_alpine",
+    "arg": "ALPINE `variant_window` in job.yaml"
    }
   ],
   "commands": [
